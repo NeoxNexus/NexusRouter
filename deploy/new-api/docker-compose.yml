@@ -1,0 +1,28 @@
+services:
+  nexusrouter:
+    build:
+      context: ../.. # 仓库根目录（Dockerfile 需要 src/ 和 package.json）
+      dockerfile: deploy/new-api/Dockerfile
+    container_name: nexusrouter
+    restart: always
+    environment:
+      # new-api 平台地址，改成你的实际域名（注意 OpenAI 端点带 /v1，Anthropic 端点不带）
+      NEW_API_OPENAI_URL: https://new-api.example.com/v1
+      NEW_API_ANTHROPIC_URL: https://new-api.example.com
+    volumes:
+      - ./config.yaml:/app/config/config.yaml:ro
+    expose:
+      - "8402" # 只对 nginx 暴露，不发布到宿主机
+
+  nginx:
+    image: nginx:alpine
+    container_name: nexusrouter-nginx
+    restart: always
+    depends_on:
+      - nexusrouter
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 放置你的 TLS 证书（passthrough 模式链路是真实令牌，HTTPS 是硬性要求）
+      - ./certs:/etc/nginx/certs:ro

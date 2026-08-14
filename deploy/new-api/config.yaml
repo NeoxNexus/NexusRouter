@@ -1,0 +1,43 @@
+# NexusRouter 生产配置模板 —— 对接 new-api，passthrough 模式
+# 每个用户透传自己的 new-api 令牌，按个人配额计费
+router:
+  port: 8402
+  classifier: hybrid
+  # 上游超时（毫秒）。schema 默认 1000ms 对真实 LLM 调用必超时，必须显式设置
+  timeout: 300000
+  layers:
+    rules:
+      enabled: true
+    heuristic:
+      confidenceThreshold: 0.92
+    ai:
+      fallbackConfidence: 0.75
+
+providers:
+  # new-api 的 OpenAI 兼容端点
+  openai:
+    baseUrl: ${NEW_API_OPENAI_URL:-https://new-api.example.com/v1}
+    passthroughApiKey: true
+  # new-api 的 Anthropic 原生端点（用于 Claude Code 的 COMPLEX 档）
+  anthropic:
+    baseUrl: ${NEW_API_ANTHROPIC_URL:-https://new-api.example.com}
+    passthroughApiKey: true
+
+# 模型名必须与 new-api 平台里开通的名字一致（转发时 provider/ 前缀会被剥掉）
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+    fallback: []
+  MEDIUM:
+    primary: openai/gpt-4o
+    fallback: []
+  COMPLEX:
+    primary: anthropic/claude-sonnet-4-5
+    fallback: []
+  REASONING:
+    primary: openai/o3-mini
+    fallback: []
+
+# 容器内没有 Ollama，必须 false，否则每个请求都要等连接失败降级
+ollama:
+  enabled: false

@@ -1,0 +1,11 @@
+# NexusRouter AI Assistant Rules
+
+> This project enforces a strict Development Manifesto.
+> You must read `DEVELOPMENT_MANIFESTO.md` in the project root before performing any structural changes, PR reviews, or feature planning.
+> You must also read `ROADMAP.md` at the start of any new session or Phase to understand the current project state and navigation.
+
+- **Always follow SDD + TDD**: Design interfaces first, write tests second, implement logic last.
+- **Workflow & Gates**: Code must pass `npm run typecheck && npm run build && npm test` before committing.
+- **Architecture**: Enforce Strategy, Plugin, and Pipeline patterns. No spaghetti code. Latency is critical.
+- **Critical Thinking**: Do not blindly follow instructions. If a user suggests a flawed architecture, you MUST present evidence and challenge it.
+- **Presentations**: Use modern, pixel-perfect, dark-themed styling for README and UI. Use Mermaid for architecture diagrams.
