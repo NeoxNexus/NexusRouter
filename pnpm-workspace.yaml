@@ -1,0 +1,6 @@
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  openclaw: false
+  protobufjs: true
+  tree-sitter-bash: true
