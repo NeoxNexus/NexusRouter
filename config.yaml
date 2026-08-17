@@ -1,6 +1,10 @@
 router:
   port: 8402
   classifier: hybrid
+  # 监听地址。默认只绑回环双栈（IPv4 + IPv6），同网段其他机器无法访问，
+  # 避免 config 里的 API 额度被别人白嫖。localhost 解析成 ::1 时也能连。
+  # 如需暴露到局域网，显式改为 hosts: ["0.0.0.0"]（务必自行加鉴权/防火墙）。
+  hosts: ["127.0.0.1", "::1"]
   # 上游请求超时（毫秒）。schema 默认 1000ms 对真实 LLM 调用必超时，生产必须显式设置
   timeout: 300000
   layers:

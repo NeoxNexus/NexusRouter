@@ -51,6 +51,13 @@ export const LayersConfigSchema = z.object({
 
 export const RouterConfigSchema = z.object({
   port: z.number().default(8402),
+  /**
+   * Addresses to listen on. Defaults to loopback only (both IP families), so
+   * the router is unreachable from other machines on the LAN and its
+   * configured API keys can't be spent by anyone else. To expose it, set this
+   * explicitly (e.g. ["0.0.0.0"]) and add your own auth/firewall.
+   */
+  hosts: z.array(z.string()).default(["127.0.0.1", "::1"]),
   classifier: z.enum(["heuristic", "hybrid"]).default("hybrid"),
   layers: LayersConfigSchema.default({}),
   timeout: z.number().default(1000),

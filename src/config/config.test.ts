@@ -250,4 +250,52 @@ tiers:
     expect(config.ollama.enabled).toBe(false);
     expect(config.ollama.timeout).toBe(30000);
   });
+
+  it("should default router.hosts to loopback dual-stack", async () => {
+    const minimalConfig = `
+router:
+  port: 8402
+providers:
+  openai:
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+`;
+    await fs.writeFile(testConfigPath, minimalConfig);
+
+    const config = await loadConfig(testConfigPath);
+    // Secure default: only reachable from the local host, over both IP families.
+    expect(config.router.hosts).toEqual(["127.0.0.1", "::1"]);
+  });
+
+  it("should accept explicit router.hosts (e.g. LAN exposure opt-in)", async () => {
+    const configContent = `
+router:
+  port: 8402
+  hosts: ["0.0.0.0"]
+providers:
+  openai:
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+`;
+    await fs.writeFile(testConfigPath, configContent);
+
+    const config = await loadConfig(testConfigPath);
+    expect(config.router.hosts).toEqual(["0.0.0.0"]);
+  });
 });

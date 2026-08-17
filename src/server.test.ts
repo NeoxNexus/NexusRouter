@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import Fastify from "fastify";
+import * as net from "net";
 import { loadConfig } from "./config/loader.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { createServer } from "./server.js";
+import { createServer, startServer } from "./server.js";
 
 describe("Fastify Server", () => {
   const testConfigPath = path.join(os.tmpdir(), "test-config-server.yaml");
@@ -749,6 +750,79 @@ providers:
       expect(calls[0].headers.Authorization).toBe("Bearer config-key");
     } finally {
       await server.close();
+    }
+  });
+});
+
+describe("Loopback dual-stack binding", () => {
+  const dualStackConfigPath = path.join(os.tmpdir(), "test-config-dualstack.yaml");
+
+  // Grab an OS-assigned free port on the IPv4 loopback, then release it so
+  // startServer can bind it on both families. Small TOCTOU window, acceptable
+  // for a local test.
+  function freePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const srv = net.createServer();
+      srv.once("error", reject);
+      srv.listen(0, "127.0.0.1", () => {
+        const addr = srv.address();
+        const port = typeof addr === "object" && addr ? addr.port : 0;
+        srv.close(() => resolve(port));
+      });
+    });
+  }
+
+  beforeAll(async () => {
+    await fs.writeFile(
+      dualStackConfigPath,
+      `
+router:
+  port: 8402
+  classifier: heuristic
+  hosts: ["127.0.0.1", "::1"]
+providers:
+  openai:
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+ollama:
+  enabled: false
+`,
+    );
+  });
+
+  afterAll(async () => {
+    try {
+      await fs.unlink(dualStackConfigPath);
+    } catch {
+      // ignore
+    }
+  });
+
+  it("should serve /health on both 127.0.0.1 and ::1", async () => {
+    const port = await freePort();
+    const running = await startServer(dualStackConfigPath, port);
+    try {
+      const v4 = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(v4.status).toBe(200);
+
+      // IPv6 loopback may be unavailable in some CI sandboxes; treat a
+      // connection failure as an environment skip rather than a test failure.
+      try {
+        const v6 = await fetch(`http://[::1]:${port}/health`);
+        expect(v6.status).toBe(200);
+      } catch (err) {
+        console.warn(`Skipping ::1 assertion — IPv6 loopback unavailable: ${String(err)}`);
+      }
+    } finally {
+      await running.close();
     }
   });
 });

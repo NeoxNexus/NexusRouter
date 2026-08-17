@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from "fastify";
+import { createServer as createHttpServer, type RequestListener, type Server } from "node:http";
 import { loadConfig, type Config } from "./config/loader.js";
 import { OllamaClient } from "./ollama/client.js";
 import { HybridClassifier } from "./classifier/hybrid.js";
@@ -15,6 +16,15 @@ import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/ty
 import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
 import { logRoutingDecision, type RoutingLogEntry } from "./logger.js";
+
+// Fastify only manages the single server it creates. We capture its raw
+// request handler (via serverFactory) so startServer can bind additional
+// loopback addresses (e.g. both 127.0.0.1 and ::1) to the same handler.
+declare module "fastify" {
+  interface FastifyInstance {
+    rawRequestHandler: RequestListener;
+  }
+}
 
 // ─── Register adapters once at startup ───
 registerAdapter("anthropic", () => new AnthropicAdapter());
@@ -379,7 +389,17 @@ export async function createServer(
 ): Promise<FastifyInstance> {
   const config = preloadedConfig || (await loadConfig(configPath));
 
-  const app = Fastify({ logger: true });
+  // Capture Fastify's raw request handler so startServer can attach extra
+  // listeners (multiple loopback addresses) that reuse the same pipeline.
+  let capturedHandler!: RequestListener;
+  const app = Fastify({
+    logger: true,
+    serverFactory: (handler) => {
+      capturedHandler = handler;
+      return createHttpServer(handler);
+    },
+  });
+  app.decorate("rawRequestHandler", capturedHandler);
 
   const ollama = new OllamaClient(config.ollama.baseUrl);
   const classifier = new HybridClassifier(ollama, {
@@ -421,11 +441,65 @@ export async function createServer(
   return app;
 }
 
-export async function startServer(configPath?: string, port?: number): Promise<void> {
+export interface RunningServer {
+  /** Addresses actually bound (subset of config.router.hosts). */
+  hosts: string[];
+  /** Port the server listens on. */
+  port: number;
+  /** Close the Fastify app and all extra loopback listeners. */
+  close: () => Promise<void>;
+}
+
+export async function startServer(configPath?: string, port?: number): Promise<RunningServer> {
   const config = await loadConfig(configPath);
   const app = await createServer(configPath, config);
   const listenPort = port || config.router.port;
+  const hosts = config.router.hosts;
 
-  await app.listen({ port: listenPort, host: "0.0.0.0" });
-  console.log(`NexusRouter running on http://0.0.0.0:${listenPort}`);
+  const bound: string[] = [];
+  const extraServers: Server[] = [];
+
+  for (const [i, host] of hosts.entries()) {
+    try {
+      if (i === 0) {
+        // Primary address goes through Fastify's own lifecycle.
+        await app.listen({ port: listenPort, host });
+      } else {
+        // Additional addresses reuse the same request handler via a sibling
+        // http.Server, since a Fastify instance can only listen() once.
+        const extra = createHttpServer(app.rawRequestHandler);
+        await new Promise<void>((resolve, reject) => {
+          extra.once("error", reject);
+          extra.listen(listenPort, host, () => resolve());
+        });
+        extraServers.push(extra);
+      }
+      bound.push(host);
+    } catch (err) {
+      // A host may be unbindable (e.g. IPv6 disabled → ::1 throws). Skip it
+      // but keep going, as long as at least one address binds.
+      app.log.warn({ err, host, port: listenPort }, `Failed to bind ${host}:${listenPort}, skipping`);
+    }
+  }
+
+  if (bound.length === 0) {
+    await app.close();
+    throw new Error(`Could not bind port ${listenPort} on any of: ${hosts.join(", ")}`);
+  }
+
+  const urls = bound
+    .map((h) => `http://${h.includes(":") ? `[${h}]` : h}:${listenPort}`)
+    .join(", ");
+  console.log(`NexusRouter running on ${urls}`);
+
+  return {
+    hosts: bound,
+    port: listenPort,
+    close: async () => {
+      await app.close();
+      await Promise.all(
+        extraServers.map((s) => new Promise<void>((resolve) => s.close(() => resolve()))),
+      );
+    },
+  };
 }
