@@ -3,6 +3,7 @@
  *
  * Logs every LLM request as a JSON line to a daily log file.
  * Files: ~/.nexusrouter/logs/usage-YYYY-MM-DD.jsonl
+ *        ~/.nexusrouter/logs/routing-YYYY-MM-DD.jsonl
  *
  * MVP: append-only JSON lines. No rotation, no cleanup.
  * Logging never breaks the request flow — all errors are swallowed.
@@ -28,13 +29,19 @@ export type UsageEntry = {
   service?: string;
 };
 
-const LOG_DIR = join(homedir(), ".nexusrouter", "logs");
-let dirReady = false;
+const DEFAULT_LOG_DIR = join(homedir(), ".nexusrouter", "logs");
+const PROMPT_PREVIEW_MAX = 200;
+const readyDirs = new Set<string>();
 
-async function ensureDir(): Promise<void> {
-  if (dirReady) return;
-  await mkdir(LOG_DIR, { recursive: true });
-  dirReady = true;
+/** Resolved per call so NEXUSROUTER_LOG_DIR can be set after module load. */
+function resolveLogDir(): string {
+  return process.env.NEXUSROUTER_LOG_DIR || DEFAULT_LOG_DIR;
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  if (readyDirs.has(dir)) return;
+  await mkdir(dir, { recursive: true });
+  readyDirs.add(dir);
 }
 
 /**
@@ -42,10 +49,72 @@ async function ensureDir(): Promise<void> {
  */
 export async function logUsage(entry: UsageEntry): Promise<void> {
   try {
-    await ensureDir();
+    const dir = resolveLogDir();
+    await ensureDir(dir);
     const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
-    const file = join(LOG_DIR, `usage-${date}.jsonl`);
+    const file = join(dir, `usage-${date}.jsonl`);
     await appendFile(file, JSON.stringify(entry) + "\n");
+  } catch {
+    // Never break the request flow
+  }
+}
+
+/**
+ * One routing decision, recorded per request.
+ *
+ * `classifierTier` vs `finalTier` are kept separate on purpose: the gap between
+ * them is the agent profile's hint fusion, which is otherwise invisible.
+ */
+export type RoutingLogEntry = {
+  timestamp: string;
+  agent: string;
+  protocol: "anthropic" | "openai";
+  /** Model the client asked for ("auto", or an explicit provider/model) */
+  requestedModel: string;
+  /** Tier the classifier produced, before hint fusion */
+  classifierTier: string;
+  /** Tier actually used, after hint fusion */
+  finalTier: string;
+  /** Model forwarded upstream, provider prefix included */
+  finalModel: string;
+  layer: "rule" | "heuristic" | "ai" | "fallback";
+  reason: string;
+  confidence: number;
+  hasTools: boolean;
+  toolCount: number;
+  /** This turn actually asks for an action (inferToolRequirement), not merely that a schema is attached. */
+  requiresTools: boolean;
+  hasThinking: boolean;
+  hasSystemPrompt: boolean;
+  messageCount: number;
+  promptChars: number;
+  /** Length of the text after profile-level boilerplate stripping (pre-classifier). */
+  promptCharsSanitized: number;
+  promptPreview: string;
+  stream: boolean;
+  classifyLatencyMs: number;
+  upstreamStatus?: number;
+  totalLatencyMs?: number;
+};
+
+/**
+ * Log a routing decision as a JSON line.
+ *
+ * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexusrouter/logs
+ */
+export async function logRoutingDecision(
+  entry: RoutingLogEntry,
+  dir: string = resolveLogDir(),
+): Promise<void> {
+  try {
+    await ensureDir(dir);
+    const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
+    const file = join(dir, `routing-${date}.jsonl`);
+    const truncated: RoutingLogEntry = {
+      ...entry,
+      promptPreview: entry.promptPreview.slice(0, PROMPT_PREVIEW_MAX),
+    };
+    await appendFile(file, JSON.stringify(truncated) + "\n");
   } catch {
     // Never break the request flow
   }

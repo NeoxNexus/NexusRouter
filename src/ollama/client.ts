@@ -3,7 +3,10 @@ export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";
 export interface HeuristicContext {
   messageCount: number;
   hasSystemPrompt: boolean;
+  /** A tool schema is attached. Hosts like Claude Code set this on every turn. */
   hasTools?: boolean;
+  /** This turn asks for an action, not merely that tools are available. */
+  requiresTools?: boolean;
   conversationLength?: "short" | "medium" | "long";
 }
 

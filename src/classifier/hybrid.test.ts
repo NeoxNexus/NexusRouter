@@ -354,40 +354,162 @@ describe("HybridClassifier", () => {
     });
   });
 
-  describe("tools detection (hasTools)", () => {
-    it("should force COMPLEX when hasTools=true in Layer 0", async () => {
+  describe("tool presence: capability is not complexity", () => {
+    // Claude Code attaches its full tool table to every request, so hasTools is
+    // a constant for that traffic. Tier must be driven by the prompt instead.
+    it("keeps a greeting SIMPLE even with a tool table attached", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      // Use a prompt that won't match greeting patterns
+      const result = await classifier.classify("hi", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.tier).toBe("SIMPLE");
+      expect(result.reason).toBe("greeting");
+    });
+
+    it("keeps thanks SIMPLE even with a tool table attached", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("thanks", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.tier).toBe("SIMPLE");
+      expect(result.reason).toBe("thanks");
+    });
+
+    it("does not reach a rule verdict from tool presence alone", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
       const result = await classifier.classify("process this data", {
         messageCount: 1,
         hasSystemPrompt: false,
         hasTools: true,
       });
 
-      expect(result.tier).toBe("COMPLEX");
-      expect(result.layer).toBe("rule");
+      expect(result.layer).not.toBe("rule");
+      expect(result.reason).not.toBe("has-tools");
     });
 
-    it("should upgrade tier when hasTools in Layer 1 fallback", async () => {
-      // Mock Ollama to throw so it falls through to Layer 1
-      mockFetch.mockResolvedValue({
-        ok: false,
-      } as Response);
+    it("upgrades tier in Layer 1 when the turn actually requires a tool", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+      const context = {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      };
+
+      const idle = await classifier.classify("process this data", {
+        ...context,
+        requiresTools: false,
+      });
+      const acting = await classifier.classify("process this data", {
+        ...context,
+        requiresTools: true,
+      });
+
+      // Asserting the layer matters: the previous version of this test passed
+      // while Layer 0 short-circuited, so Layer 1 was never exercised.
+      expect(acting.layer).not.toBe("rule");
+      expect(idle.tier).toBe("SIMPLE");
+      expect(acting.tier).toBe("MEDIUM");
+    });
+
+    it("does not downgrade REASONING when tools are present", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("prove this theorem", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+        requiresTools: true,
+      });
+
+      expect(result.tier).toBe("REASONING");
+    });
+  });
+
+  describe("reasoning keywords match whole words only", () => {
+    // `includes()` matching made "improve" (contains "prove") read as a
+    // reasoning request. Claude Code injects "improve" on every turn via its
+    // skill list, which pinned all its traffic to the most expensive tier.
+    it.each([
+      ["improve", "improve this function"],
+      ["improvement", "suggest an improvement"],
+      ["approve", "the user will approve or deny the execution"],
+      ["disprove", "disprove is a substring trap"],
+      ["proofread", "proofread this paragraph"],
+      ["derived", "rename the derived class"],
+      ["logical", "fix the logical operator precedence"],
+    ])("does not treat %s as a reasoning keyword", async (_label, prompt) => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
 
       const classifier = new HybridClassifier(mockOllama, config);
 
-      // Use a prompt that won't match any Layer 0 rules
-      const result = await classifier.classify("process this data", {
+      const result = await classifier.classify(prompt, {
         messageCount: 1,
         hasSystemPrompt: false,
         hasTools: true,
       });
 
-      expect(result.tier).toBe("COMPLEX");
+      expect(result.reason).not.toBe("reasoning-keyword");
+      expect(result.tier).not.toBe("REASONING");
     });
 
-    it("should not downgrade REASONING when hasTools=true", async () => {
+    it.each([
+      ["prove", "prove this identity"],
+      ["theorem", "state the theorem"],
+      ["proof", "walk me through the proof"],
+      ["derive", "derive the closed form"],
+      ["logically", "explain this logically"],
+      ["show that", "show that the series converges"],
+    ])("still treats %s as a reasoning keyword", async (_label, prompt) => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify(prompt, {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.reason).toBe("reasoning-keyword");
+      expect(result.tier).toBe("REASONING");
+    });
+  });
+
+  describe("classification reason (observability)", () => {
+    it("should report greeting for greeting patterns", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("hello", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.reason).toBe("greeting");
+    });
+
+    it("should report thanks for gratitude patterns", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("thanks", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.reason).toBe("thanks");
+    });
+
+    it("should report reasoning-keyword when tools are also present", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
       const result = await classifier.classify("prove this theorem", {
@@ -396,8 +518,46 @@ describe("HybridClassifier", () => {
         hasTools: true,
       });
 
-      // REASONING should stay REASONING
-      expect(result.tier).toBe("REASONING");
+      expect(result.reason).toBe("reasoning-keyword");
+    });
+
+    it("should report reference-pattern when tools are also present", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("继续修改上面的文件", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.reason).toBe("reference-pattern");
+    });
+
+    it("should report complex-keyword for complexity keywords without tools", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("analyze the security of this", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.reason).toBe("complex-keyword");
+    });
+
+    it("should report low-confidence-fallback when no layer reaches its threshold", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("process this data", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.layer).toBe("fallback");
+      expect(result.reason).toBe("low-confidence-fallback");
     });
   });
 

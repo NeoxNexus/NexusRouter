@@ -56,12 +56,26 @@ export const RouterConfigSchema = z.object({
   timeout: z.number().default(1000),
 });
 
+/**
+ * How agent hints influence the routing tier.
+ *
+ * Claude Code attaches `thinking` to every request whenever an effort level
+ * is set globally (e.g. CLAUDE_CODE_EFFORT_LEVEL=max), so it carries no
+ * per-request signal under that configuration. The switch lets deployments
+ * choose how much tier pull the hint is allowed.
+ */
+export const HintsConfigSchema = z.object({
+  /** off: ignore the thinking flag; complex: at least COMPLEX; reasoning: at least REASONING (legacy). */
+  thinking: z.enum(["off", "complex", "reasoning"]).default("off"),
+});
+
 export const ConfigSchema = z.object({
   router: RouterConfigSchema.default({}),
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   tiers: z
     .record(z.enum(["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"]), TierConfigSchema)
     .default({}),
+  hints: HintsConfigSchema.default({}),
   ollama: OllamaConfigSchema.default({}),
 });
 
@@ -70,3 +84,4 @@ export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type TierConfig = z.infer<typeof TierConfigSchema>;
 export type OllamaConfig = z.infer<typeof OllamaConfigSchema>;
 export type RouterConfig = z.infer<typeof RouterConfigSchema>;
+export type HintsConfig = z.infer<typeof HintsConfigSchema>;

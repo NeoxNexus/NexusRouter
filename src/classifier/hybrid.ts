@@ -13,7 +13,19 @@ export interface HybridConfig {
 interface RuleResult {
   hit: boolean;
   tier?: Tier;
+  reason?: ClassificationReason;
 }
+
+/** 命中原因。用于日志分析各层与各规则的实际触发分布。 */
+export type ClassificationReason =
+  | "greeting"
+  | "thanks"
+  | "reasoning-keyword"
+  | "reference-pattern"
+  | "complex-keyword"
+  | "heuristic-score"
+  | "ai-classified"
+  | "low-confidence-fallback";
 
 const GREETING_PATTERNS =
   /^((hi|hello|hey|howdy|good (morning|afternoon|evening)|what's up|yo|greetings)[\s,!]*)+$/i;
@@ -25,6 +37,39 @@ const REFERENCE_PATTERNS = [
   /\b(above|previous|that|this) (file|code|function|class)\b/i,
   /\bcontinue (with|editing)?/i,
 ];
+
+/**
+ * 推理关键词按整词匹配。
+ *
+ * 曾用 `includes()`，于是 "improve" 内含的 "prove" 会命中 —— Claude Code
+ * 每轮都注入 skills 清单（必含 "improve"），全部流量因此钉在 REASONING。
+ * `\b` 只对 ASCII 词边界有效，中文关键词需另立通路，故此表保持纯英文。
+ */
+const REASONING_KEYWORDS = [
+  "prove",
+  "proof",
+  "theorem",
+  "mathematical",
+  "logically",
+  "derive",
+  "show that",
+];
+
+const REASONING_PATTERN = new RegExp(`\\b(?:${REASONING_KEYWORDS.join("|")})\\b`, "i");
+
+// 复杂代码分析关键词
+const COMPLEX_KEYWORDS = ["analyze", "security", "implications", "architecture", "design patterns"];
+
+const COMPLEX_PATTERN = new RegExp(`\\b(?:${COMPLEX_KEYWORDS.join("|")})\\b`, "i");
+
+// Layer 1 用的推理词表比 Layer 0 更宽（含 calculate / solve equation），
+// 因为启发式层只加权、不直接定档，误判代价更低。
+const HEURISTIC_REASONING_PATTERN = new RegExp(
+  `\\b(?:${[...REASONING_KEYWORDS, "calculate", "solve equation"].join("|")})\\b`,
+  "i",
+);
+
+const ANALYSIS_PATTERN = /\b(?:analyze|compare|evaluate|assess|review)\b/i;
 
 // 辅助函数：提升 tier
 function upgradeTier(current: Tier): Tier {
@@ -44,15 +89,21 @@ export class HybridClassifier {
   async classify(
     prompt: string,
     context: HeuristicContext,
-  ): Promise<OllamaResult & { layer: "rule" | "heuristic" | "ai" | "fallback" }> {
+  ): Promise<
+    OllamaResult & {
+      layer: "rule" | "heuristic" | "ai" | "fallback";
+      reason: ClassificationReason;
+    }
+  > {
     // Layer 0: Rules (very fast, < 1ms)
-    const ruleResult = this.checkRules(prompt, context);
+    const ruleResult = this.checkRules(prompt);
     if (ruleResult.hit && ruleResult.tier) {
       return {
         tier: ruleResult.tier,
         confidence: 1.0,
         latency: 0.05,
         layer: "rule",
+        reason: ruleResult.reason!,
       };
     }
 
@@ -62,6 +113,7 @@ export class HybridClassifier {
       return {
         ...heuristicResult,
         layer: "heuristic",
+        reason: "heuristic-score",
       };
     }
 
@@ -72,6 +124,7 @@ export class HybridClassifier {
         return {
           ...aiResult,
           layer: "ai",
+          reason: "ai-classified",
         };
       }
     } catch {
@@ -83,60 +136,36 @@ export class HybridClassifier {
       ...heuristicResult,
       confidence: 0.5,
       layer: "fallback",
+      reason: "low-confidence-fallback",
     };
   }
 
-  private checkRules(prompt: string, context: HeuristicContext): RuleResult {
+  private checkRules(prompt: string): RuleResult {
     const normalized = prompt.trim().toLowerCase();
 
-    // ★ hasTools 时跳过问候语和感谢语检测
-    // 因为有 tools 表示是代理请求，即使是简单消息也需要更高级的模型
-    if (!context.hasTools) {
-      // 问候语检测
-      if (GREETING_PATTERNS.test(normalized)) {
-        return { hit: true, tier: "SIMPLE" };
-      }
+    // 问候语检测
+    if (GREETING_PATTERNS.test(normalized)) {
+      return { hit: true, tier: "SIMPLE", reason: "greeting" };
+    }
 
-      // 感谢语检测
-      if (THANK_PATTERNS.test(normalized)) {
-        return { hit: true, tier: "SIMPLE" };
-      }
+    // 感谢语检测
+    if (THANK_PATTERNS.test(normalized)) {
+      return { hit: true, tier: "SIMPLE", reason: "thanks" };
     }
 
     // 推理关键词检测 (优先级最高)
-    const reasoningKeywords = [
-      "prove",
-      "proof",
-      "theorem",
-      "mathematical",
-      "logical",
-      "derive",
-      "show that",
-    ];
-    if (reasoningKeywords.some((kw) => normalized.includes(kw))) {
-      return { hit: true, tier: "REASONING" };
+    if (REASONING_PATTERN.test(normalized)) {
+      return { hit: true, tier: "REASONING", reason: "reasoning-keyword" };
     }
 
     // ★ 引用上文检测
     if (REFERENCE_PATTERNS.some((p) => p.test(normalized))) {
-      return { hit: true, tier: upgradeTier("SIMPLE") };
-    }
-
-    // ★ hasTools 强制 COMPLEX (只有在不是 REASONING 时)
-    if (context.hasTools) {
-      return { hit: true, tier: "COMPLEX" };
+      return { hit: true, tier: upgradeTier("SIMPLE"), reason: "reference-pattern" };
     }
 
     // 复杂代码分析关键词
-    const complexKeywords = [
-      "analyze",
-      "security",
-      "implications",
-      "architecture",
-      "design patterns",
-    ];
-    if (complexKeywords.some((kw) => normalized.includes(kw))) {
-      return { hit: true, tier: "COMPLEX" };
+    if (COMPLEX_PATTERN.test(normalized)) {
+      return { hit: true, tier: "COMPLEX", reason: "complex-keyword" };
     }
 
     return { hit: false };
@@ -175,24 +204,13 @@ export class HybridClassifier {
     }
 
     // Check for reasoning keywords
-    const reasoningKeywords = [
-      "prove",
-      "proof",
-      "theorem",
-      "mathematical",
-      "logical",
-      "derive",
-      "calculate",
-      "solve equation",
-    ];
-    if (reasoningKeywords.some((kw) => normalized.includes(kw))) {
+    if (HEURISTIC_REASONING_PATTERN.test(normalized)) {
       tier = "REASONING";
       confidence = 0.85;
     }
 
     // Check for multi-step analysis
-    const analysisKeywords = ["analyze", "compare", "evaluate", "assess", "review"];
-    if (analysisKeywords.some((kw) => normalized.includes(kw))) {
+    if (ANALYSIS_PATTERN.test(normalized)) {
       if (tier === "SIMPLE" || tier === "MEDIUM") {
         tier = "COMPLEX";
         confidence = Math.max(confidence, 0.75);
@@ -214,8 +232,10 @@ export class HybridClassifier {
       confidence = Math.min(confidence + 0.05, 1.0);
     }
 
-    // ★ hasTools 强制提升 (双重保险)
-    if (context.hasTools && tier !== "REASONING") {
+    // ★ 这一轮真的要动手时提升档位。
+    // 用 requiresTools 而非 hasTools：后者对 Claude Code 恒为 true，恒真的
+    // 条件不是分类特征。工具「能力」约束归 filterByToolCalling，不归档位。
+    if (context.requiresTools && tier !== "REASONING") {
       tier = upgradeTier(tier);
       confidence = Math.min(confidence + 0.15, 1.0);
     }

@@ -73,6 +73,24 @@ gantt
 
 
 
+## 🔴 待处理缺陷（阻塞 Phase 3）
+
+| 编号 | 缺陷 | 严重级别 | 状态 | 文档 |
+|:-----|:-----|:--------:|:----:|:-----|
+| D-001 | `hasTools` 恒真使三层分类器退化：CC 流量 100% 钉在 COMPLEX/REASONING，SIMPLE/MEDIUM 永不生效 | 🔴 高 | ✅ 分类侧已修复（能力侧留 Phase 3） | [评审报告](docs/reviews/2026-08-17-classifier-hastools-defect.md) · [修复记录](docs/reviews/2026-08-18-classifier-d001-fix.md) |
+
+**D-001 处置结果（2026-08-18）**：
+
+- 实测观测 7 条真实 CC 流量，**修正了评审报告的核心预测**：`reason` 分布 100% 是 `reasoning-keyword` 而非 `has-tools`。根因是 `hybrid.ts` 用 `includes()` 做关键词匹配，CC 每轮注入的 skills 清单必含 `improve`（内含 `prove`），在 hasTools 分支之前就命中 REASONING。
+- 本轮已修复（TDD，408/408 绿灯）：
+  1. 推理关键词改 `\b` 整词匹配（`logical` → `logically`，对齐上游）
+  2. 移植上游 `tool-intent.ts`：`requiresTools` 拆开「带工具表」与「这一轮要动手」
+  3. `AgentProfile.sanitizeForClassification`：CC 剥离 `<system-reminder>` 注入块，转发 body 不受影响
+  4. `hints.thinking` 开关（`config.yaml` 顶层，默认 `off`）—— thinking 恒真（`CLAUDE_CODE_EFFORT_LEVEL=max` 常开所致）不再参与档位融合
+- 遗留（并入 Phase 3.3）：能力侧 `filterByToolCalling` 接入需 `router/` 上主链。**阻塞项**：`config.yaml` 四档模型（`claude-opus-*`）均未注册进 `models.ts`，直接接入会把四档全过滤掉；须先解决双配置源归属。
+
+---
+
 ## Phase 状态总览
 
 | Phase | 目标 | 状态 | 提交 | 测试 |
@@ -195,6 +213,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.1** 基于审阅报告确认“当前真实主链”与“计划保留主链”
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
 - [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
+  - 前置（D-001 遗留）：`config.yaml` 四档模型未注册 `models.ts`，`filterByToolCalling`/成本估算接入前必须先定模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
 - [ ] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [ ] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
 - [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录

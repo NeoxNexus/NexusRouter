@@ -15,6 +15,7 @@ export {
     getProfile,
     resolveProfile,
     getHintsAndWeights,
+    sanitizeForClassification,
     claudeCodeProfile,
     openClawProfile,
 } from "./profile.js";

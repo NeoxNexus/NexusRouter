@@ -7,6 +7,7 @@ import {
     openClawProfile,
     resolveProfile,
     getHintsAndWeights,
+    sanitizeForClassification,
 } from "./profile.js";
 import type { UnifiedRequest } from "./types.js";
 
@@ -236,3 +237,41 @@ describe("resolveProfile", () => {
         expect(profile.name).toBe("claude-code");
     });
 });
+
+// ─── Host Boilerplate Stripping ───
+
+describe("sanitizeForClassification", () => {
+    test("claude-code strips a system-reminder block", () => {
+        const text = "<system-reminder>\nSessionStart hook: improve existing skills\n</system-reminder>\nhi";
+        expect(sanitizeForClassification(claudeCodeProfile, text)).toBe("hi");
+    });
+
+    test("claude-code strips several blocks and keeps the user's own words", () => {
+        const text = [
+            "<system-reminder>first injection</system-reminder>",
+            "rename foo to bar",
+            "<system-reminder>trailing injection</system-reminder>",
+        ].join("\n");
+        expect(sanitizeForClassification(claudeCodeProfile, text)).toBe("rename foo to bar");
+    });
+
+    test("claude-code returns empty string when the turn is only boilerplate", () => {
+        const text = "<system-reminder>nothing but injection</system-reminder>";
+        expect(sanitizeForClassification(claudeCodeProfile, text)).toBe("");
+    });
+
+    test("claude-code leaves an unterminated block alone rather than eating the prompt", () => {
+        const text = "<system-reminder>no closing tag, then: prove this theorem";
+        expect(sanitizeForClassification(claudeCodeProfile, text)).toBe(text);
+    });
+
+    test("claude-code leaves ordinary prompts untouched", () => {
+        expect(sanitizeForClassification(claudeCodeProfile, "hi")).toBe("hi");
+    });
+
+    test("profiles without the hook pass text through unchanged", () => {
+        const text = "<system-reminder>injection</system-reminder>\nhi";
+        expect(sanitizeForClassification(openClawProfile, text)).toBe(text);
+    });
+});
+

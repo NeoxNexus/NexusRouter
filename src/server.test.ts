@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import Fastify from "fastify";
 import { loadConfig } from "./config/loader.js";
 import * as fs from "fs/promises";
@@ -122,9 +122,364 @@ ollama:
   });
 });
 
+describe("Routing decision logging", () => {
+  const logConfigPath = path.join(os.tmpdir(), "test-config-routing-log.yaml");
+  let logDir: string;
+
+  function mockUpstream() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: () => Promise.resolve(JSON.stringify({ id: "mock" })),
+      }),
+    );
+  }
+
+  beforeAll(async () => {
+    await fs.writeFile(
+      logConfigPath,
+      `
+router:
+  port: 8406
+  classifier: heuristic
+providers:
+  anthropic:
+    baseUrl: http://upstream.test
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: anthropic/cheap-model
+  MEDIUM:
+    primary: anthropic/mid-model
+  COMPLEX:
+    primary: anthropic/big-model
+  REASONING:
+    primary: anthropic/reasoning-model
+ollama:
+  enabled: false
+`,
+    );
+  });
+
+  beforeEach(async () => {
+    logDir = await fs.mkdtemp(path.join(os.tmpdir(), "nexusrouter-server-log-"));
+    process.env.NEXUSROUTER_LOG_DIR = logDir;
+  });
+
+  afterEach(async () => {
+    delete process.env.NEXUSROUTER_LOG_DIR;
+    vi.unstubAllGlobals();
+    await fs.rm(logDir, { recursive: true, force: true });
+  });
+
+  afterAll(async () => {
+    try {
+      await fs.unlink(logConfigPath);
+    } catch {
+      // ignore
+    }
+  });
+
+  // Routing logs are written fire-and-forget so they never sit on the request
+  // path, so poll briefly rather than assuming the write already landed.
+  async function readLogEntries(expected = 1): Promise<Record<string, unknown>[]> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const files = await fs.readdir(logDir);
+      const routingFile = files.find((f) => f.startsWith("routing-"));
+      if (routingFile) {
+        const content = await fs.readFile(path.join(logDir, routingFile), "utf-8");
+        const entries = content
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l));
+        if (entries.length >= expected) return entries;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return [];
+  }
+
+  it("routes a tool-attached but idle Claude Code request without force-upgrading its tier", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: "list the files in src/" }],
+          tools: [
+            { name: "Read", input_schema: { type: "object" } },
+            { name: "Bash", input_schema: { type: "object" } },
+          ],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        agent: "claude-code",
+        protocol: "anthropic",
+        requestedModel: "auto",
+        hasTools: true,
+        toolCount: 2,
+        requiresTools: false,
+        finalTier: "SIMPLE",
+        finalModel: "anthropic/cheap-model",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not upgrade the tier for a plain question with a tool table attached", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: "hi" }],
+          tools: [{ name: "Read", input_schema: { type: "object" } }],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        hasTools: true,
+        reason: "greeting",
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        finalModel: "anthropic/cheap-model",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("ignores the thinking hint by default (off mode)", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: "list the files in src/" }],
+          tools: [{ name: "Read", input_schema: { type: "object" } }],
+          thinking: { type: "enabled", budget_tokens: 2000 },
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        hasThinking: true,
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("records upstream status and prompt preview", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: "rename foo to bar" }],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0].upstreamStatus).toBe(200);
+      expect(entries[0].promptPreview).toBe("rename foo to bar");
+      expect(entries[0].promptChars).toBe(17);
+      expect(typeof entries[0].totalLatencyMs).toBe("number");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not log when the request is rejected before routing", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      const response = await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: { model: "auto", max_tokens: 100, messages: [] },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await readLogEntries(0)).toHaveLength(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("classifies the stripped prompt but forwards the original body untouched", async () => {
+    // Capture the upstream body to prove the sanitize step never mutates what
+    // the user's agent sent — only the classifier's input changes.
+    const upstreamCalls: { body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (_url: string, init: { body: string }) => {
+        upstreamCalls.push({ body: JSON.parse(init.body) });
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve(JSON.stringify({ id: "mock" })),
+        };
+      }),
+    );
+
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      const originalContent =
+        "<system-reminder>\nSessionStart hook: improve existing skills\n</system-reminder>\nhi";
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: originalContent }],
+          tools: [{ name: "Read", input_schema: { type: "object" } }],
+        },
+      });
+
+      // Classifier saw the stripped text and hit the greeting rule.
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        reason: "greeting",
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        finalModel: "anthropic/cheap-model",
+        promptChars: originalContent.length,
+        promptCharsSanitized: 2,
+      });
+
+      // Upstream received the original content, byte for byte.
+      expect(upstreamCalls).toHaveLength(1);
+      const upstreamMessages = upstreamCalls[0].body.messages as Array<{ content: string }>;
+      expect(upstreamMessages[0].content).toBe(originalContent);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("respects hints.thinking: reasoning and complex modes", async () => {
+    // One shared logDir across iterations — index each iteration's own entry.
+    let iteration = 0;
+    for (const [mode, expectedTier] of [
+      ["reasoning", "COMPLEX"],
+      ["complex", "MEDIUM"],
+    ] as const) {
+      const modeConfigPath = path.join(os.tmpdir(), `test-config-thinking-${mode}.yaml`);
+      await fs.writeFile(
+        modeConfigPath,
+        `
+router:
+  port: 8406
+  classifier: heuristic
+providers:
+  anthropic:
+    baseUrl: http://upstream.test
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: anthropic/cheap-model
+  MEDIUM:
+    primary: anthropic/mid-model
+  COMPLEX:
+    primary: anthropic/big-model
+  REASONING:
+    primary: anthropic/reasoning-model
+hints:
+  thinking: ${mode}
+ollama:
+  enabled: false
+`,
+      );
+
+      mockUpstream();
+      const config = await loadConfig(modeConfigPath);
+      const server = await createServer(modeConfigPath, config);
+      try {
+        await server.inject({
+          method: "POST",
+          url: "/anthropic/v1/messages",
+          headers: { "x-api-key": "sk-user" },
+          payload: {
+            model: "auto",
+            max_tokens: 100,
+            messages: [{ role: "user", content: "list the files in src/" }],
+            thinking: { type: "enabled", budget_tokens: 2000 },
+          },
+        });
+
+        const entries = await readLogEntries(iteration + 1);
+        expect(entries[iteration]).toMatchObject({
+          hasThinking: true,
+          classifierTier: "SIMPLE",
+          finalTier: expectedTier,
+        });
+        iteration++;
+      } finally {
+        await server.close();
+        vi.unstubAllGlobals();
+        await fs.unlink(modeConfigPath);
+      }
+    }
+  });
+});
+
 describe("Model prefix stripping and API key passthrough", () => {
   const passthroughConfigPath = path.join(os.tmpdir(), "test-config-passthrough.yaml");
   const pinnedConfigPath = path.join(os.tmpdir(), "test-config-pinned.yaml");
+  let logDir: string;
+
+  // Routing decisions are logged as a side effect; redirect them to a temp dir
+  // so the suite never appends to the user's real ~/.nexusrouter/logs.
+  beforeEach(async () => {
+    logDir = await fs.mkdtemp(path.join(os.tmpdir(), "nexusrouter-prefix-log-"));
+    process.env.NEXUSROUTER_LOG_DIR = logDir;
+  });
+
+  afterEach(async () => {
+    delete process.env.NEXUSROUTER_LOG_DIR;
+    await fs.rm(logDir, { recursive: true, force: true });
+  });
 
   // Stub global fetch as the UPSTREAM call made by adapters. Client requests
   // use server.inject() so they never touch this stub.
@@ -223,6 +578,24 @@ providers:
         payload: { model: "auto", messages: [{ role: "user", content: "hello" }] },
       });
 
+      expect(calls.length).toBe(1);
+      expect(calls[0].body.model).toBe("gpt-4o-mini");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("should treat model=Auto case-insensitively as auto-routing", async () => {
+    const calls = mockUpstream();
+    const server = await makeServer(pinnedConfigPath);
+    try {
+      const response = await server.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        payload: { model: "Auto", messages: [{ role: "user", content: "hello" }] },
+      });
+
+      expect(response.statusCode).toBe(200);
       expect(calls.length).toBe(1);
       expect(calls[0].body.model).toBe("gpt-4o-mini");
     } finally {

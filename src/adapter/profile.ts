@@ -32,6 +32,12 @@ export interface AgentProfile {
      * If not provided, defaults to { hintWeight: 0, classifierWeight: 1 }.
      */
     computeWeights?(hints: AgentHints): ClassifierWeights;
+    /**
+     * Strip host-injected boilerplate before the text reaches the classifier.
+     * Only the classifier's input is affected — the body forwarded upstream
+     * keeps the original text. If not provided, text passes through unchanged.
+     */
+    sanitizeForClassification?(text: string): string;
 }
 
 // ─── Default Weights ───
@@ -92,6 +98,16 @@ export const claudeCodeProfile: AgentProfile = {
         }
         // Default (sonnet) — classifier is king
         return { hintWeight: 0.1, classifierWeight: 0.9 };
+    },
+
+    sanitizeForClassification(text: string): string {
+        // Claude Code hooks inject <system-reminder> blocks into the user
+        // turn (skill lists, hook output, permission instructions). They are
+        // host boilerplate, not user intent — but they dominate keyword
+        // matching (e.g. the skill list always contains "improve"). Strip
+        // only fully-closed blocks; an unterminated tag is left untouched
+        // rather than risking eating the user's own text.
+        return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "").trim();
     },
 };
 
@@ -155,6 +171,23 @@ export function getHintsAndWeights(
     const hints = profile.extractHints?.(request) ?? {};
     const weights = profile.computeWeights?.(hints) ?? DEFAULT_WEIGHTS;
     return { hints, weights };
+}
+
+/**
+ * Prepare the text that reaches the classifier for a given profile.
+ *
+ * Hosts inject boilerplate into the user turn (Claude Code hooks append
+ * <system-reminder> blocks with skill lists and hook output). Those blocks
+ * are host machinery, not user intent — but a keyword classifier reads them
+ * as the prompt itself. Profiles may strip such blocks via the optional
+ * `sanitizeForClassification` hook; profiles without one pass text through
+ * unchanged.
+ *
+ * IMPORTANT: this only shapes the classifier's input. The body forwarded
+ * upstream always keeps the original text, byte for byte.
+ */
+export function sanitizeForClassification(profile: AgentProfile, text: string): string {
+    return profile.sanitizeForClassification?.(text) ?? text;
 }
 
 // ─── Auto-register built-in profiles ───

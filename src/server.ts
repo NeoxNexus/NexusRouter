@@ -7,11 +7,14 @@ import {
   registerAdapter,
   resolveProfile,
   getHintsAndWeights,
+  sanitizeForClassification,
   AnthropicAdapter,
   OpenAIAdapter,
 } from "./adapter/index.js";
 import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/types.js";
 import type { ProtocolType } from "./adapter/types.js";
+import { inferToolRequirement } from "./router/tool-intent.js";
+import { logRoutingDecision, type RoutingLogEntry } from "./logger.js";
 
 // ─── Register adapters once at startup ───
 registerAdapter("anthropic", () => new AnthropicAdapter());
@@ -38,6 +41,7 @@ async function handleUnified(
 ) {
   const adapter = createAdapter(protocol);
   const profile = resolveProfile(agentPrefix, protocol);
+  const startedAt = Date.now();
 
   // Step 1: Convert to unified format
   const rawHeaders: Record<string, string | undefined> = {};
@@ -61,7 +65,9 @@ async function handleUnified(
   const { hints, weights } = getHintsAndWeights(profile, unified);
 
   let targetModel = unified.model;
-  const shouldAutoRoute = !unified.model || unified.model === "auto";
+  const shouldAutoRoute = !unified.model || unified.model.toLowerCase() === "auto";
+  // Populated only when auto-routing; drives the routing decision log.
+  let routingLog: Omit<RoutingLogEntry, "upstreamStatus" | "totalLatencyMs"> | undefined;
 
   if (shouldAutoRoute) {
     // Extract text from all user messages for classification
@@ -74,15 +80,27 @@ async function handleUnified(
       const conversationLength: "short" | "medium" | "long" =
         unified.messages.length <= 2 ? "short" : unified.messages.length <= 6 ? "medium" : "long";
 
-      const classifierResult = await classifier.classify(userText, {
+      // Hosts inject boilerplate into the user turn (Claude Code hooks append
+      // <system-reminder> blocks). Classify the stripped text, but keep the
+      // original for observability and forwarding — upstream gets userText
+      // untouched. The guard above stays on userText so an all-boilerplate
+      // turn still produces a routing decision and a log line.
+      const classificationText = sanitizeForClassification(profile, userText);
+
+      const rawBody = unified.rawBody as Record<string, unknown> | undefined;
+      const requiresTools =
+        !!unified.hasTools && inferToolRequirement(classificationText, unified.system, rawBody?.tool_choice);
+
+      const classifierResult = await classifier.classify(classificationText, {
         messageCount: unified.messages.length,
         hasSystemPrompt: !!unified.system,
         hasTools: unified.hasTools,
+        requiresTools,
         conversationLength,
       });
 
       // Step 4: Weighted fusion of hints + classifier
-      const tier = resolveWeightedTier(classifierResult, hints, weights);
+      const tier = resolveWeightedTier(classifierResult, hints, weights, config.hints?.thinking ?? "off");
 
       const tierConfig = config.tiers[tier as keyof typeof config.tiers];
       if (!tierConfig) {
@@ -100,6 +118,30 @@ async function handleUnified(
       reply.header("x-nexusrouter-layer", classifierResult.layer);
       reply.header("x-nexusrouter-confidence", String(classifierResult.confidence));
       reply.header("x-nexusrouter-agent", profile.name);
+
+      routingLog = {
+        timestamp: new Date().toISOString(),
+        agent: profile.name,
+        protocol,
+        requestedModel: unified.model,
+        classifierTier: classifierResult.tier,
+        finalTier: tier,
+        finalModel: rawModel,
+        layer: classifierResult.layer,
+        reason: classifierResult.reason,
+        confidence: classifierResult.confidence,
+        hasTools: !!unified.hasTools,
+        toolCount: Array.isArray(unified.tools) ? unified.tools.length : 0,
+        requiresTools,
+        hasThinking: !!hints.preferThinking,
+        hasSystemPrompt: !!unified.system,
+        messageCount: unified.messages.length,
+        promptChars: userText.length,
+        promptCharsSanitized: classificationText.length,
+        promptPreview: userText,
+        stream: !!unified.stream,
+        classifyLatencyMs: classifierResult.latency,
+      };
     } else {
       // No text to classify — use default tier
       const defaultTierConfig = config.tiers.SIMPLE;
@@ -184,6 +226,14 @@ async function handleUnified(
     timeoutMs: config.router?.timeout || 300_000,
   });
 
+  if (routingLog) {
+    void logRoutingDecision({
+      ...routingLog,
+      upstreamStatus: result.status,
+      totalLatencyMs: Date.now() - startedAt,
+    });
+  }
+
   // Set response headers from upstream
   for (const [k, v] of Object.entries(result.headers)) {
     reply.header(k, v);
@@ -223,10 +273,23 @@ async function handleUnified(
 
 // ─── Weighted Tier Resolution ───
 
+/**
+ * Fuse classifier result with agent hints.
+ *
+ * `thinkingMode` governs how much pull the host's thinking flag is allowed:
+ * - "off": ignored (default — CC attaches thinking on every turn when a
+ *   global effort level is set, so it carries no per-request signal)
+ * - "complex": a thinking request is at least COMPLEX
+ * - "reasoning": a thinking request is at least REASONING (legacy behavior)
+ *
+ * The haiku/background-task hint keeps full pull in every mode: CC only asks
+ * for haiku when it genuinely runs a background task.
+ */
 function resolveWeightedTier(
   classifierResult: { tier: string; confidence: number },
   hints: AgentHints,
   weights: ClassifierWeights,
+  thinkingMode: "off" | "complex" | "reasoning" = "off",
 ): string {
   const TIER_RANK: Record<string, number> = { SIMPLE: 0, MEDIUM: 1, COMPLEX: 2, REASONING: 3 };
   const TIERS = ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"];
@@ -235,9 +298,11 @@ function resolveWeightedTier(
   let hintRank = classifierRank; // default: same as classifier
 
   // Hint-based tier adjustment
-  if (hints.isBackgroundTask)
+  if (hints.isBackgroundTask) {
     hintRank = 0; // Force SIMPLE
-  else if (hints.preferThinking) hintRank = Math.max(classifierRank, 3); // At least REASONING
+  } else if (hints.preferThinking && thinkingMode !== "off") {
+    hintRank = Math.max(classifierRank, thinkingMode === "reasoning" ? 3 : 2);
+  }
 
   // Weighted average of ranks (continuous), then round
   const fusedRank = Math.round(
