@@ -1,10 +1,15 @@
 import { parse as parseYaml } from "yaml";
 import { readFile } from "fs/promises";
-import { resolve } from "path";
 import { ConfigSchema, type Config } from "./schema.js";
+import { getDefaultConfigPath } from "./default-config.js";
 
 export { ConfigSchema } from "./schema.js";
 export type { Config } from "./schema.js";
+export {
+  getDefaultConfigPath,
+  ensureConfigExists,
+  DEFAULT_CONFIG_YAML,
+} from "./default-config.js";
 
 function resolveEnvVars(obj: unknown): unknown {
   if (obj === null || obj === undefined) {
@@ -64,7 +69,7 @@ function resolveEnvVars(obj: unknown): unknown {
 }
 
 export async function loadConfig(configPath?: string): Promise<Config> {
-  const pathToLoad = configPath || resolve(process.cwd(), "config.yaml");
+  const pathToLoad = configPath || getDefaultConfigPath();
 
   const fileContent = await readFile(pathToLoad, "utf-8");
   const parsed = parseYaml(fileContent);

@@ -1,8 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { loadConfig } from "../config/loader.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
+
+// Controllable homedir() so the default-path branch can target a temp dir
+// without touching the real home. Falls back to the real homedir otherwise.
+const { mockHomedir } = vi.hoisted(() => ({
+  mockHomedir: vi.fn<() => string | undefined>(),
+}));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    default: actual,
+    homedir: () => mockHomedir() ?? actual.homedir(),
+  };
+});
 
 describe("Config Loader", () => {
   const testConfigPath = path.join(os.tmpdir(), "test-config.yaml");
@@ -297,5 +311,42 @@ tiers:
 
     const config = await loadConfig(testConfigPath);
     expect(config.router.hosts).toEqual(["0.0.0.0"]);
+  });
+
+  it("loads from the home-dir default path when no path is given", async () => {
+    const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), "nexus-home-"));
+    mockHomedir.mockReturnValue(fakeHome);
+    process.env.OPENAI_API_KEY = "home-key";
+
+    const configDir = path.join(fakeHome, ".nexus-router");
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(
+      path.join(configDir, "config.yaml"),
+      `
+router:
+  port: 8500
+providers:
+  openai:
+    apiKey: \${OPENAI_API_KEY}
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+`,
+    );
+
+    try {
+      const config = await loadConfig();
+      expect(config.router.port).toBe(8500);
+      expect(config.providers.openai?.apiKey).toBe("home-key");
+    } finally {
+      mockHomedir.mockReset();
+      await fs.rm(fakeHome, { recursive: true, force: true });
+    }
   });
 });

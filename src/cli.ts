@@ -16,6 +16,14 @@
 
 import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
+import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
+
+/** Human-readable default config path, tuned per OS for the help text. */
+function defaultConfigHint(): string {
+  return process.platform === "win32"
+    ? "%USERPROFILE%\\.nexus-router\\config.yaml"
+    : "~/.nexus-router/config.yaml";
+}
 
 function printHelp(): void {
   console.log(`
@@ -29,7 +37,10 @@ Options:
   --version, -v     Show version number
   --help, -h        Show this help message
   --port <number>   Port to listen on (default: 8402)
-  --config <path>  Path to config file (default: ./config.yaml)
+  --config <path>   Path to config file
+                    (default: ${defaultConfigHint()})
+                    resolved to: ${getDefaultConfigPath()}
+                    Created automatically on first launch if missing.
 
 Commands:
   doctor            AI-powered diagnostics
@@ -117,10 +128,24 @@ async function main(): Promise<void> {
   // Start the server
   const port = args.port || parseInt(process.env.NEXUSROUTER_PORT || "8402", 10);
 
+  // Resolve config path: explicit --config wins; otherwise the home-dir
+  // default, which is auto-created from the template on first launch.
+  const configPath = args.config ?? getDefaultConfigPath();
+  if (!args.config) {
+    const { created } = await ensureConfigExists(configPath);
+    if (created) {
+      console.log(
+        `✅ 已创建默认配置：${configPath}\n` +
+          `请填写 API Key（或设置对应环境变量）后重新启动 nexusrouter。`,
+      );
+      process.exit(0);
+    }
+  }
+
   console.log(`[NexusRouter] Starting server on port ${port}...`);
 
   try {
-    await startServer(args.config, port);
+    await startServer(configPath, port);
     console.log(`[NexusRouter] Ready - Ctrl+C to stop`);
   } catch (error) {
     console.error(
