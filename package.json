@@ -27,6 +27,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "pack": "pnpm build && pnpm pack",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
