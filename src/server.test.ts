@@ -398,12 +398,47 @@ ollama:
     }
   });
 
+  it("skips the classifier when the sanitized prompt is empty", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            {
+              role: "user",
+              content: "<system-reminder>\nSessionStart hook additional context\n</system-reminder>",
+            },
+          ],
+          tools: [{ name: "Read", input_schema: { type: "object" } }],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        layer: "fallback",
+        reason: "low-confidence-fallback",
+        promptCharsSanitized: 0,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("respects hints.thinking: reasoning and complex modes", async () => {
     // One shared logDir across iterations — index each iteration's own entry.
     let iteration = 0;
     for (const [mode, expectedTier] of [
-      ["reasoning", "COMPLEX"],
-      ["complex", "MEDIUM"],
+      ["reasoning", "REASONING"],
+      ["complex", "COMPLEX"],
     ] as const) {
       const modeConfigPath = path.join(os.tmpdir(), `test-config-thinking-${mode}.yaml`);
       await fs.writeFile(

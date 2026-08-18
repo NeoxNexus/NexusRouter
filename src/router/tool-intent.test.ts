@@ -4,15 +4,15 @@ import { inferToolRequirement } from "./tool-intent.js";
 describe("inferToolRequirement", () => {
   describe("protocol signals (authoritative)", () => {
     it("honors tool_choice: none over any prose", () => {
-      expect(inferToolRequirement("run the tests now", undefined, "none")).toBe(false);
+      expect(inferToolRequirement("run the tests now", "none")).toBe(false);
     });
 
     it("honors tool_choice: required over any prose", () => {
-      expect(inferToolRequirement("hi", undefined, "required")).toBe(true);
+      expect(inferToolRequirement("hi", "required")).toBe(true);
     });
 
     it("honors a named function tool_choice", () => {
-      expect(inferToolRequirement("hi", undefined, { type: "function" })).toBe(true);
+      expect(inferToolRequirement("hi", { type: "function" })).toBe(true);
     });
   });
 
@@ -55,13 +55,6 @@ describe("inferToolRequirement", () => {
     });
   });
 
-  describe("system prompts are not evidence of intent", () => {
-    it("ignores tool descriptions living in the system prompt", () => {
-      const systemPrompt = "You can edit files, run the tests, and browse the web.";
-      expect(inferToolRequirement("hi", systemPrompt)).toBe(false);
-    });
-  });
-
   describe("web and stateful actions", () => {
     it("requires tools to look something up online", () => {
       expect(inferToolRequirement("search the web for the latest docs")).toBe(true);
@@ -69,6 +62,14 @@ describe("inferToolRequirement", () => {
 
     it("requires tools to cancel an order", () => {
       expect(inferToolRequirement("cancel my order please")).toBe(true);
+    });
+
+    it("matches action and target separated by a newline", () => {
+      expect(inferToolRequirement("please update\nmy order (order #1234)")).toBe(true);
+    });
+
+    it("matches code action and target separated by a newline", () => {
+      expect(inferToolRequirement("please write\nthe file foo.py")).toBe(true);
     });
   });
 });

@@ -47,11 +47,20 @@ const REFERENCE_PATTERNS = [
  */
 const REASONING_KEYWORDS = [
   "prove",
+  "proves",
+  "proved",
+  "proving",
   "proof",
+  "proofs",
   "theorem",
+  "theorems",
   "mathematical",
+  "mathematically",
+  "logical",
   "logically",
   "derive",
+  "derives",
+  "derived",
   "show that",
 ];
 

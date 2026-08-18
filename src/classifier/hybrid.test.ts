@@ -445,11 +445,11 @@ describe("HybridClassifier", () => {
     it.each([
       ["improve", "improve this function"],
       ["improvement", "suggest an improvement"],
+      ["improved", "the improved version"],
+      ["improves", "this improves nothing"],
       ["approve", "the user will approve or deny the execution"],
       ["disprove", "disprove is a substring trap"],
       ["proofread", "proofread this paragraph"],
-      ["derived", "rename the derived class"],
-      ["logical", "fix the logical operator precedence"],
     ])("does not treat %s as a reasoning keyword", async (_label, prompt) => {
       mockFetch.mockResolvedValue({ ok: false } as Response);
 
@@ -467,9 +467,18 @@ describe("HybridClassifier", () => {
 
     it.each([
       ["prove", "prove this identity"],
+      ["proves", "this proves the claim"],
+      ["proved", "she proved the lemma"],
+      ["proving", "proving by induction"],
       ["theorem", "state the theorem"],
+      ["theorems", "the theorems in the appendix"],
       ["proof", "walk me through the proof"],
+      ["proofs", "are the proofs correct"],
       ["derive", "derive the closed form"],
+      ["derived", "the derived quantity"],
+      ["mathematical", "a mathematical problem"],
+      ["mathematically", "show it mathematically"],
+      ["logical", "is this logical"],
       ["logically", "explain this logically"],
       ["show that", "show that the series converges"],
     ])("still treats %s as a reasoning keyword", async (_label, prompt) => {

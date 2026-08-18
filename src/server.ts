@@ -89,15 +89,27 @@ async function handleUnified(
 
       const rawBody = unified.rawBody as Record<string, unknown> | undefined;
       const requiresTools =
-        !!unified.hasTools && inferToolRequirement(classificationText, unified.system, rawBody?.tool_choice);
+        !!unified.hasTools && inferToolRequirement(classificationText, rawBody?.tool_choice);
 
-      const classifierResult = await classifier.classify(classificationText, {
-        messageCount: unified.messages.length,
-        hasSystemPrompt: !!unified.system,
-        hasTools: unified.hasTools,
-        requiresTools,
-        conversationLength,
-      });
+      // If the profile stripped the entire turn, skip the classifier rather than
+      // sending an empty prompt to the local Ollama model. Keep a fallback entry
+      // so observability still records the turn.
+      const classifierResult =
+        classificationText.length === 0
+          ? {
+              tier: "SIMPLE" as const,
+              confidence: 0.5,
+              latency: 0,
+              layer: "fallback" as const,
+              reason: "low-confidence-fallback" as const,
+            }
+          : await classifier.classify(classificationText, {
+              messageCount: unified.messages.length,
+              hasSystemPrompt: !!unified.system,
+              hasTools: unified.hasTools,
+              requiresTools,
+              conversationLength,
+            });
 
       // Step 4: Weighted fusion of hints + classifier
       const tier = resolveWeightedTier(classifierResult, hints, weights, config.hints?.thinking ?? "off");
@@ -301,13 +313,23 @@ function resolveWeightedTier(
   if (hints.isBackgroundTask) {
     hintRank = 0; // Force SIMPLE
   } else if (hints.preferThinking && thinkingMode !== "off") {
-    hintRank = Math.max(classifierRank, thinkingMode === "reasoning" ? 3 : 2);
+    // Prefer the hint over the classifier rank when thinking is enabled.
+    // The final floor is enforced after fusion below so the documented
+    // "at least COMPLEX/REASONING" guarantee holds even when the classifier
+    // produced a low tier with equal weights.
+    hintRank = thinkingMode === "reasoning" ? 3 : 2;
   }
 
   // Weighted average of ranks (continuous), then round
-  const fusedRank = Math.round(
+  let fusedRank = Math.round(
     hintRank * weights.hintWeight + classifierRank * weights.classifierWeight,
   );
+
+  // Enforce the thinking floor on the result tier.
+  if (hints.preferThinking && thinkingMode !== "off") {
+    const floor = thinkingMode === "reasoning" ? 3 : 2;
+    fusedRank = Math.max(fusedRank, floor);
+  }
 
   return TIERS[Math.min(fusedRank, 3)];
 }
