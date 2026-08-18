@@ -217,6 +217,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [ ] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
 - [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录
+- [x] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准

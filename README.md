@@ -83,7 +83,12 @@ npm install -g nexusrouter
 
 ### 2. 存档配置 (`config.yaml`)
 
-在你喜欢的本地路径创建一个配置文件：
+首次运行 `nexusrouter` 会自动在用户主目录下创建默认配置（跨平台）：
+
+- macOS / Linux：`~/.nexus-router/config.yaml`
+- Windows：`%USERPROFILE%\.nexus-router\config.yaml`
+
+打开该文件填入你的 API Key（或设置对应环境变量）即可。默认模板节选：
 
 ```yaml
 router:
@@ -110,6 +115,10 @@ tiers:
 ### 3. 开始游戏
 
 ```bash
+# 使用默认配置（~/.nexus-router/config.yaml，首启自动创建）
+nexusrouter
+
+# 或显式指定其它配置文件
 nexusrouter --config ./config.yaml
 ```
 
