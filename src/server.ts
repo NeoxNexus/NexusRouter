@@ -80,7 +80,8 @@ async function handleUnified(
   let routingLog: Omit<RoutingLogEntry, "upstreamStatus" | "totalLatencyMs"> | undefined;
 
   if (shouldAutoRoute) {
-    // Extract text from all user messages for classification
+    // Text of all user messages, kept for observability (routing log) only —
+    // classification uses the latest real-text user message instead (below).
     const userText = unified.messages
       .filter((m) => m.role === "user")
       .map((m) => m.content)
@@ -90,12 +91,24 @@ async function handleUnified(
       const conversationLength: "short" | "medium" | "long" =
         unified.messages.length <= 2 ? "short" : unified.messages.length <= 6 ? "medium" : "long";
 
+      // Classify the most recent user message with real text, not the joined
+      // transcript: long histories always trip Layer 1's >200-word heuristic,
+      // and stale keywords (e.g. "analyze security") pollute the current turn.
       // Hosts inject boilerplate into the user turn (Claude Code hooks append
-      // <system-reminder> blocks). Classify the stripped text, but keep the
-      // original for observability and forwarding — upstream gets userText
-      // untouched. The guard above stays on userText so an all-boilerplate
-      // turn still produces a routing decision and a log line.
-      const classificationText = sanitizeForClassification(profile, userText);
+      // <system-reminder> blocks) and tool_result-only continuations carry no
+      // text at all — the walk below skips both and lands on the task's
+      // original instruction. The guard above stays on userText so an
+      // all-boilerplate turn still produces a routing decision and a log line.
+      let classificationText = "";
+      for (let i = unified.messages.length - 1; i >= 0; i--) {
+        const message = unified.messages[i];
+        if (message.role !== "user") continue;
+        const text = sanitizeForClassification(profile, message.content);
+        if (text) {
+          classificationText = text;
+          break;
+        }
+      }
 
       const rawBody = unified.rawBody as Record<string, unknown> | undefined;
       const requiresTools =

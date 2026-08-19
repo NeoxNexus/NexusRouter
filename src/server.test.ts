@@ -434,6 +434,120 @@ ollama:
     }
   });
 
+  it("classifies only the latest user message, ignoring complex keywords in history", async () => {
+    // The first turn would classify as COMPLEX via the "analyze"/"security"
+    // keyword rule; the current turn is a plain greeting. The router must
+    // classify the current turn, not the joined transcript.
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            { role: "user", content: "analyze the security architecture of this codebase" },
+            { role: "assistant", content: "Here is the analysis." },
+            { role: "user", content: "hi" },
+          ],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        reason: "greeting",
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        finalModel: "anthropic/cheap-model",
+        promptCharsSanitized: 2,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("falls back to the last real-text user message when the latest turn is tool_result-only", async () => {
+    // Claude Code's agentic loop: the final user message carries only a
+    // tool_result block, which the adapter extracts as empty text. The walk
+    // skips it and classifies the original instruction instead.
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            { role: "user", content: "rename foo to bar" },
+            {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "toolu_1", name: "Edit", input: {} }],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "done" }],
+            },
+          ],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        promptCharsSanitized: 17,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("uses the empty-text fallback when every user message is tool_result-only", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "a" }],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "toolu_2", content: "b" }],
+            },
+          ],
+        },
+      });
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        classifierTier: "SIMPLE",
+        finalTier: "SIMPLE",
+        layer: "fallback",
+        reason: "low-confidence-fallback",
+        promptCharsSanitized: 0,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("respects hints.thinking: reasoning and complex modes", async () => {
     // One shared logDir across iterations — index each iteration's own entry.
     let iteration = 0;
