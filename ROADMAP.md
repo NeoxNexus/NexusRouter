@@ -214,8 +214,8 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
 - [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
   - 前置（D-001 遗留）：`config.yaml` 四档模型未注册 `models.ts`，`filterByToolCalling`/成本估算接入前必须先定模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
-- [ ] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
-- [ ] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
+- [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
+- [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
 - [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录
 - [ ] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径
 - [x] **3.8 部署基线收口与文档入口统一**
