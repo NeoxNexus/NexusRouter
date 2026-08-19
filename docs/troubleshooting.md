@@ -1,149 +1,158 @@
-# Troubleshooting
+# NexusRouter 故障排查
 
-Quick solutions for common ClawRouter issues.
+快速解决 NexusRouter 使用中的常见问题。
 
-> Need help? [Open a Discussion](https://github.com/BlockRunAI/ClawRouter/discussions) or check [existing issues](https://github.com/BlockRunAI/ClawRouter/issues).
+> 需要帮助？请提交 [Issue](https://github.com/Neo/NexusRouter/issues) 或查阅 [`docs/usage-manual.md`](./usage-manual.md)。
 
-## Table of Contents
+## 目录
 
-- [Quick Checklist](#quick-checklist)
-- [Common Errors](#common-errors)
-- [Security Scanner Warnings](#security-scanner-warnings)
-- [Port Conflicts](#port-conflicts)
-- [How to Update](#how-to-update)
-- [Verify Routing](#verify-routing)
+- [快速检查清单](#快速检查清单)
+- [常见错误](#常见错误)
+- [端口冲突](#端口冲突)
+- [如何更新](#如何更新)
+- [验证路由](#验证路由)
 
 ---
 
-## Quick Checklist
+## 快速检查清单
 
 ```bash
-# 1. Check your version (should be 0.5.7+)
-cat ~/.openclaw/extensions/clawrouter/package.json | grep version
+# 1. 检查版本
+nexusrouter --version
 
-# 2. Check proxy is running
+# 2. 检查服务是否运行
 curl http://localhost:8402/health
 
-# 3. Watch routing in action
-openclaw logs --follow
-# Should see: gemini-2.5-flash $0.0012 (saved 99%)
+# 3. 查看日志（本地）
+nexusrouter --config ./config.yaml | npx pino-pretty
 
-# 4. View cost savings
-/stats
+# 4. 查看日志（Docker）
+docker compose -f deploy/new-api/docker-compose.yml logs -f nexusrouter
 ```
 
 ---
 
-## Common Errors
+## 常见错误
 
-### "Unknown model: blockrun/auto" or "Unknown model: auto"
+### "Unknown model: auto"
 
-Plugin isn't loaded or outdated. **Don't change the model name** — `blockrun/auto` is correct.
+`model` 字段必须填 `auto`（或不填）才会触发自动路由。如果填了具体模型名，必须使用 `provider/model` 格式，例如 `openai/gpt-4o`。
 
-**Fix:** Update to v0.3.21+ which handles both `blockrun/auto` and `auto` (OpenClaw strips provider prefix). See [How to Update](#how-to-update).
+### "API key required" / 401
 
-### "No API key found for provider blockrun"
+**本地模式：**
 
-Auth profile is missing or wasn't created properly.
+- `config.yaml` 里对应 provider 的 `apiKey` 未设置或环境变量未 export
+- 检查 `${OPENAI_API_KEY}` / `${ANTHROPIC_API_KEY}` 是否已展开
 
-**Fix:** See [How to Update](#how-to-update) — the reinstall script automatically injects the auth profile.
+**passthrough 远程模式：**
 
-### "Config validation failed: plugin not found: clawrouter"
+- 客户端没带 key。Claude Code 检查 `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`，OpenAI 客户端检查 API Key 配置项
+- 如果用了 nginx，确认 `proxy_set_header` 正确转发 `Authorization` / `x-api-key`
 
-Plugin directory was removed but config still references it. This blocks all OpenClaw commands until fixed.
+### "Upstream timed out after 1000ms"
 
-**Fix:** See [How to Update](#how-to-update) for complete cleanup steps.
+没设置 `router.timeout`，schema 默认 1000ms。在 `config.yaml` 里加：
 
-### "No USDC balance" / "Insufficient funds"
+```yaml
+router:
+  timeout: 300000
+```
 
-Wallet needs funding.
+### 每个请求都慢几秒才响应
 
-**Fix:**
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。改成：
 
-1. Find your wallet address (printed during install)
-2. Send USDC on **Base network** to that address
-3. $1-5 is enough for hundreds of requests
-4. Restart OpenClaw
+```yaml
+ollama:
+  enabled: false
+```
+
+### 上游 404，模型不存在
+
+`tiers` 里的模型名和上游平台（尤其 new-api）里的名字不一致。转发时 `provider/` 前缀会被剥掉，上游收到的是 `/` 后面的部分，按那个核对。
+
+### Claude Code 连不上
+
+URL 是不是写成了 `.../anthropic/v1`？正确的是：
+
+```
+http://host:8402/anthropic
+```
+
+不带 `/v1`。
+
+### SSE 流式响应中断或只有一条数据
+
+检查 nginx 配置是否关闭了缓冲：
+
+```nginx
+proxy_buffering off;
+proxy_cache off;
+proxy_read_timeout 600s;
+```
 
 ---
 
-## Security Scanner Warnings
-
-### "WARNING: dangerous code patterns — possible credential harvesting"
-
-This is a **false positive**. ClawRouter legitimately:
-
-1. Reads `BLOCKRUN_WALLET_KEY` from environment (for authentication)
-2. Sends authenticated requests to BlockRun API (for x402 micropayments)
-
-This pattern triggers OpenClaw's security scanner, but it's the intended behavior — the wallet key is required to sign payment transactions. The code is fully open source and auditable.
-
-### "env-harvesting" Warning
-
-OpenClaw's security scanner may flag ClawRouter with:
-
-```
-[env-harvesting] Environment variable access combined with network send
-```
-
-**This is a false positive.** The scanner's heuristic (`env variable + network request = suspicious`) flags all payment plugins, but this pattern is inherently required for non-custodial payments.
-
-ClawRouter reads `BLOCKRUN_WALLET_KEY` to sign x402 payment transactions — this is required and intentional:
-
-- The wallet key is used **locally** for cryptographic signing (EIP-712)
-- The **signature** is transmitted, not the private key itself
-- The key **never leaves the machine** — only cryptographic proofs are sent
-- This is standard [x402 payment protocol](https://x402.org) behavior
-- Source code is [MIT licensed and fully auditable](https://github.com/BlockRunAI/ClawRouter)
-
-See [`openclaw.security.json`](../openclaw.security.json) for detailed security documentation and [this discussion](https://x.com/bc1beat/status/2020158972561428686) for more context.
-
----
-
-## Port Conflicts
+## 端口冲突
 
 ### Port 8402 already in use
 
-As of v0.4.1, ClawRouter automatically detects and reuses an existing proxy on the configured port instead of failing with `EADDRINUSE`. You should no longer see this error.
-
-If you need to use a different port:
-
 ```bash
-# Set custom port via environment variable
-export BLOCKRUN_PROXY_PORT=8403
-openclaw gateway restart
-```
-
-To manually check/kill the process:
-
-```bash
+# 查看占用进程
 lsof -i :8402
-# Kill the process or restart OpenClaw
+
+# 或直接用其他端口启动
+nexusrouter --port 8403
 ```
 
 ---
 
-## How to Update
+## 如何更新
+
+### npm 全局安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BlockRunAI/ClawRouter/main/scripts/reinstall.sh | bash
-openclaw gateway restart
+npm update -g nexusrouter
+nexusrouter --version
 ```
 
-This removes the old version, installs the latest, and restarts the gateway.
+### 源码更新
+
+```bash
+git pull origin main
+npm install
+npm run build
+npm test
+```
+
+### Docker 部署
+
+```bash
+cd deploy/new-api
+docker compose pull
+docker compose up -d --build
+```
 
 ---
 
-## Verify Routing
+## 验证路由
+
+发送测试请求并观察响应头：
 
 ```bash
-openclaw logs --follow
+curl -i -X POST http://localhost:8402/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-You should see model selection for each request:
+响应头：
 
 ```
-[plugins] [SIMPLE] google/gemini-2.5-flash $0.0012 (saved 99%)
-[plugins] [MEDIUM] deepseek/deepseek-chat $0.0003 (saved 99%)
-[plugins] [REASONING] deepseek/deepseek-reasoner $0.0005 (saved 99%)
+x-nexusrouter-tier: SIMPLE
+x-nexusrouter-layer: rule
+x-nexusrouter-confidence: 1
+x-nexusrouter-agent: openclaw
 ```
+
+排查"为什么这个请求走了便宜/贵模型"时，先看这四个头。

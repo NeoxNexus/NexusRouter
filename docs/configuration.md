@@ -1,459 +1,218 @@
-# Configuration Reference
+# NexusRouter 配置参考
 
-Complete reference for ClawRouter configuration options.
+NexusRouter 使用单一 YAML 配置文件（默认 `./config.yaml`），通过 Zod 在启动时校验。
 
-## Table of Contents
+## 目录
 
-- [Environment Variables](#environment-variables)
-- [Wallet Configuration](#wallet-configuration)
-- [Wallet Backup & Recovery](#wallet-backup--recovery)
-- [Proxy Settings](#proxy-settings)
-- [Programmatic Usage](#programmatic-usage)
-- [Routing Configuration](#routing-configuration)
-- [Tier Overrides](#tier-overrides)
-- [Scoring Weights](#scoring-weights)
-- [Testing Configuration](#testing-configuration)
-
----
-
-## Environment Variables
-
-| Variable              | Default | Description                                                              |
-| --------------------- | ------- | ------------------------------------------------------------------------ |
-| `BLOCKRUN_WALLET_KEY` | -       | Ethereum private key (hex, 0x-prefixed). Used if no saved wallet exists. |
-| `BLOCKRUN_PROXY_PORT` | `8402`  | Port for the local x402 proxy server.                                    |
-
-### BLOCKRUN_WALLET_KEY
-
-The wallet private key for signing x402 micropayments.
-
-```bash
-export BLOCKRUN_WALLET_KEY=0x...your_private_key...
-```
-
-**Resolution order:**
-
-1. Saved file (`~/.openclaw/blockrun/wallet.key`) — checked first
-2. `BLOCKRUN_WALLET_KEY` environment variable — used if no saved file
-3. Auto-generate — creates new wallet and saves to file
-
-> **Security Note:** The saved file takes priority to prevent accidentally switching wallets and losing access to funded balances.
-
-### BLOCKRUN_PROXY_PORT
-
-Configure the proxy to listen on a different port:
-
-```bash
-export BLOCKRUN_PROXY_PORT=8403
-openclaw gateway restart
-```
-
-**Behavior:**
-
-- If a proxy is already running on the configured port, ClawRouter will **reuse it** instead of failing with `EADDRINUSE`
-- The proxy returns the wallet address of the existing instance, not the configured wallet
-- A warning is logged if the existing proxy uses a different wallet
-
-**Valid values:** 1-65535 (integers only). Invalid values fall back to 8402.
+- [环境变量](#环境变量)
+- [完整配置示例](#完整配置示例)
+- [配置字段详解](#配置字段详解)
+  - [router](#router)
+  - [providers](#providers)
+  - [tiers](#tiers)
+  - [hints](#hints)
+  - [ollama](#ollama)
+- [认证方式](#认证方式)
+- [常见问题](#常见问题)
 
 ---
 
-## Wallet Configuration
+## 环境变量
 
-### Check Active Wallet
+| 变量                | 默认值 | 说明                                |
+| :------------------ | :----- | :---------------------------------- |
+| `NEXUSROUTER_PORT`  | `8402` | 服务监听端口（`--port` 优先级更高） |
+| `OPENAI_API_KEY`    | -      | OpenAI 协议 provider 的默认 key     |
+| `ANTHROPIC_API_KEY` | -      | Anthropic 协议 provider 的默认 key  |
+| `GOOGLE_API_KEY`    | -      | Google provider 的默认 key          |
 
-```bash
-# View wallet address
-curl http://localhost:8402/health | jq .wallet
-
-# View wallet with balance info
-curl "http://localhost:8402/health?full=true" | jq
-```
-
-Response:
-
-```json
-{
-  "status": "ok",
-  "wallet": "0x...",
-  "balance": "$2.50",
-  "isLow": false,
-  "isEmpty": false
-}
-```
-
-### Switch Wallets
-
-To use a different wallet:
-
-```bash
-# 1. Remove saved wallet
-rm ~/.openclaw/blockrun/wallet.key
-
-# 2. Set new wallet key
-export BLOCKRUN_WALLET_KEY=0x...
-
-# 3. Restart
-openclaw gateway restart
-```
-
-### Backup Wallet
-
-```bash
-# Backup wallet key
-cp ~/.openclaw/blockrun/wallet.key ~/backup/
-
-# View wallet address from key file
-cat ~/.openclaw/blockrun/wallet.key
-```
-
-### Wallet Backup & Recovery
-
-Your wallet private key is stored at `~/.openclaw/blockrun/wallet.key`. **Back up this file before terminating any VPS or machine!**
-
-#### Using the `/wallet` Command
-
-ClawRouter provides a built-in command for wallet management:
-
-```bash
-# Check wallet status (address, balance, file location)
-/wallet
-
-# Export private key for backup (shows the actual key)
-/wallet export
-```
-
-The `/wallet export` command displays your private key so you can copy it before terminating a machine.
-
-#### Manual Backup
-
-```bash
-# Option 1: Copy the key file
-cp ~/.openclaw/blockrun/wallet.key ~/backup-wallet.key
-
-# Option 2: View and copy the key
-cat ~/.openclaw/blockrun/wallet.key
-```
-
-#### Restore on a New Machine
-
-```bash
-# Option 1: Set environment variable (before installing ClawRouter)
-export BLOCKRUN_WALLET_KEY=0x...your_key_here...
-openclaw plugins install @blockrun/clawrouter
-
-# Option 2: Create the key file directly
-mkdir -p ~/.openclaw/blockrun
-echo "0x...your_key_here..." > ~/.openclaw/blockrun/wallet.key
-chmod 600 ~/.openclaw/blockrun/wallet.key
-openclaw plugins install @blockrun/clawrouter
-```
-
-**Important:** If a saved wallet file exists, it takes priority over the environment variable. To use a different wallet, delete the existing file first.
-
-#### Lost Key Recovery
-
-If you lose your wallet key, **there is no way to recover it**. The wallet is self-custodial, meaning only you have the private key. We do not store keys or have any way to restore access.
-
-**Prevention tips:**
-
-- Run `/wallet export` before terminating any VPS
-- Keep a secure backup of `~/.openclaw/blockrun/wallet.key`
-- For production use, consider using a hardware wallet or key management system
+所有 provider 的 `apiKey` 都可以在 YAML 中直接写 `${ENV_NAME}` 引用环境变量。
 
 ---
 
-## Proxy Settings
-
-### Proxy Reuse (v0.4.1+)
-
-ClawRouter automatically detects and reuses an existing proxy on startup:
-
-```
-Session 1: startProxy() → starts server on :8402
-Session 2: startProxy() → detects existing, reuses handle
-```
-
-**Behavior:**
-
-- Health check is performed on the configured port before starting
-- If responsive, returns a handle that uses the existing proxy
-- `close()` on reused handles is a no-op (doesn't stop the original server)
-- Warning logged if existing proxy uses a different wallet
-
-### Programmatic Usage
-
-Use ClawRouter without OpenClaw:
-
-```typescript
-import { startProxy } from "@blockrun/clawrouter";
-
-const proxy = await startProxy({
-  walletKey: process.env.BLOCKRUN_WALLET_KEY!,
-  onReady: (port) => console.log(`Proxy on port ${port}`),
-  onRouted: (d) => console.log(`${d.model} saved ${(d.savings * 100).toFixed(0)}%`),
-});
-
-// Any OpenAI-compatible client works
-const res = await fetch(`${proxy.baseUrl}/v1/chat/completions`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model: "blockrun/auto",
-    messages: [{ role: "user", content: "What is 2+2?" }],
-  }),
-});
-
-await proxy.close();
-```
-
-Or use the router directly (no proxy, no payments):
-
-```typescript
-import { route, DEFAULT_ROUTING_CONFIG, BLOCKRUN_MODELS } from "@blockrun/clawrouter";
-
-// Build pricing map
-const modelPricing = new Map();
-for (const m of BLOCKRUN_MODELS) {
-  modelPricing.set(m.id, { inputPrice: m.inputPrice, outputPrice: m.outputPrice });
-}
-
-const decision = route("Prove sqrt(2) is irrational", undefined, 4096, {
-  config: DEFAULT_ROUTING_CONFIG,
-  modelPricing,
-});
-
-console.log(decision);
-// {
-//   model: "deepseek/deepseek-reasoner",
-//   tier: "REASONING",
-//   confidence: 0.97,
-//   method: "rules",
-//   savings: 0.994,
-//   costEstimate: 0.002,
-// }
-```
-
-### Programmatic Options
-
-All options for `startProxy()`:
-
-```typescript
-import { startProxy } from "@blockrun/clawrouter";
-
-const proxy = await startProxy({
-  walletKey: "0x...",
-
-  // Port configuration
-  port: 8402, // Default: 8402 or BLOCKRUN_PROXY_PORT
-
-  // Timeouts
-  requestTimeoutMs: 180000, // 3 minutes (covers on-chain tx + LLM response)
-
-  // API base (for testing)
-  apiBase: "https://blockrun.ai/api",
-
-  // Callbacks
-  onReady: (port) => console.log(`Proxy ready on ${port}`),
-  onError: (error) => console.error(error),
-  onRouted: (decision) => console.log(decision.model, decision.tier),
-  onLowBalance: (info) => console.warn(`Low balance: ${info.balanceUSD}`),
-  onInsufficientFunds: (info) => console.error(`Need ${info.requiredUSD}`),
-  onPayment: (info) => console.log(`Paid ${info.amount} for ${info.model}`),
-
-  // Routing config overrides
-  routingConfig: {
-    // See Routing Configuration below
-  },
-});
-```
-
----
-
-## Routing Configuration
-
-### Via openclaw.yaml
+## 完整配置示例
 
 ```yaml
-plugins:
-  - id: "@blockrun/clawrouter"
-    config:
-      routing:
-        # Override tier assignments
-        tiers:
-          SIMPLE:
-            primary: "google/gemini-2.5-flash"
-            fallback: ["deepseek/deepseek-chat"]
-          MEDIUM:
-            primary: "deepseek/deepseek-chat"
-            fallback: ["openai/gpt-4o-mini"]
-          COMPLEX:
-            primary: "anthropic/claude-sonnet-4.6"
-            fallback: ["openai/gpt-4o"]
-          REASONING:
-            primary: "deepseek/deepseek-reasoner"
-            fallback: ["openai/o3-mini"]
+router:
+  port: 8402
+  classifier: hybrid # hybrid | heuristic
+  timeout: 300000 # 上游超时（毫秒），生产必须显式设置
+  layers:
+    rules:
+      enabled: true
+    heuristic:
+      confidenceThreshold: 0.92
+    ai:
+      fallbackConfidence: 0.75
 
-        # Override scoring parameters
-        scoring:
-          reasoningKeywords: ["prove", "theorem", "formal", "derive"]
-          codeKeywords: ["function", "class", "async", "import"]
-          simpleKeywords: ["what is", "define", "hello"]
+providers:
+  openai:
+    apiKey: ${OPENAI_API_KEY}
+    baseUrl: https://api.openai.com/v1
+    maxRetries: 3
+    passthroughApiKey: false
 
-        # Override thresholds
-        classifier:
-          confidenceThreshold: 0.7
-          reasoningConfidence: 0.97
+  anthropic:
+    apiKey: ${ANTHROPIC_API_KEY}
+    baseUrl: https://api.anthropic.com
+    maxRetries: 3
+    passthroughApiKey: false
 
-        # Context-based overrides
-        overrides:
-          largeContextTokens: 100000 # Force COMPLEX above this
-          structuredOutput: true # Bump to min MEDIUM for JSON/YAML
+  # 对接 new-api 的示例（远程团队部署）
+  newapi-openai:
+    baseUrl: https://new-api.example.com/v1
+    passthroughApiKey: true
+
+  newapi-anthropic:
+    baseUrl: https://new-api.example.com
+    passthroughApiKey: true
+
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+    fallback: []
+  MEDIUM:
+    primary: openai/gpt-4o
+    fallback: []
+  COMPLEX:
+    primary: anthropic/claude-sonnet-4-5
+    fallback: []
+  REASONING:
+    primary: openai/o3-mini
+    fallback: []
+
+hints:
+  thinking: off # off | complex | reasoning
+
+ollama:
+  enabled: false
+  baseUrl: http://localhost:11434
+  models:
+    fast: qwen2.5:3b
+    accurate: qwen2.5:14b
+  timeout: 30000
 ```
 
 ---
 
-## Tier Overrides
+## 配置字段详解
 
-### Default Tier Mappings
+### router
 
-| Tier      | Primary Model                 | Fallback Chain                                  |
-| --------- | ----------------------------- | ----------------------------------------------- |
-| SIMPLE    | `google/gemini-2.5-flash`     | `deepseek/deepseek-chat`                        |
-| MEDIUM    | `deepseek/deepseek-chat`      | `openai/gpt-4o-mini`, `google/gemini-2.5-flash` |
-| COMPLEX   | `anthropic/claude-sonnet-4.6` | `openai/gpt-4o`, `google/gemini-2.5-pro`        |
-| REASONING | `deepseek/deepseek-reasoner`  | `openai/o3-mini`, `anthropic/claude-sonnet-4.6` |
+| 字段                                   | 类型    | 默认值     | 说明                                                         |
+| :------------------------------------- | :------ | :--------- | :----------------------------------------------------------- |
+| `port`                                 | number  | `8402`     | 监听端口                                                     |
+| `classifier`                           | string  | `"hybrid"` | `"hybrid"`（三层）或 `"heuristic"`（仅启发式）               |
+| `timeout`                              | number  | `1000`     | 上游请求超时（毫秒）。**真实 LLM 调用必须改大，建议 300000** |
+| `layers.rules.enabled`                 | boolean | `true`     | 是否启用规则层                                               |
+| `layers.heuristic.confidenceThreshold` | number  | `0.92`     | 启发式层直接判定阈值                                         |
+| `layers.ai.fallbackConfidence`         | number  | `0.75`     | AI 层兜底置信度                                              |
 
-### Fallback Chain
+### providers
 
-When the primary model fails (rate limits, billing errors, provider outages), ClawRouter tries the next model in the fallback chain:
+`providers` 是一个键值对，键名自定义，在 `tiers` 中用 `"键名/模型"` 引用。
 
-```
-Request → gemini-2.5-flash (rate limited)
-       → deepseek-chat (billing error)
-       → gpt-4o-mini (success)
-```
+| 字段                | 类型    | 默认值             | 说明                                                      |
+| :------------------ | :------ | :----------------- | :-------------------------------------------------------- |
+| `apiKey`            | string  | `""`               | 上游密钥。支持 `${ENV}` / `${ENV:-default}` / `$ENV` 展开 |
+| `baseUrl`           | string  | 按 provider 名默认 | 自定义上游地址，可指向 new-api / vLLM / LM Studio         |
+| `maxRetries`        | number  | `3`                | 上游失败重试次数                                          |
+| `passthroughApiKey` | boolean | `false`            | 是否透传客户端自带的 API key（见下文）                    |
 
-Max fallback attempts: 3 models per request.
+provider 名对应的默认 `baseUrl`：
 
-### Custom Tier Configuration
+| provider 名 | 默认 baseUrl                                       |
+| :---------- | :------------------------------------------------- |
+| `openai`    | `https://api.openai.com/v1`                        |
+| `anthropic` | `https://api.anthropic.com`                        |
+| `google`    | `https://generativelanguage.googleapis.com/v1beta` |
+
+### tiers
+
+| 字段        | 类型   | 说明       |
+| :---------- | :----- | :--------- |
+| `SIMPLE`    | object | 简单请求   |
+| `MEDIUM`    | object | 中等复杂度 |
+| `COMPLEX`   | object | 复杂任务   |
+| `REASONING` | object | 推理任务   |
+
+每个 tier：
 
 ```yaml
-routing:
-  tiers:
-    COMPLEX:
-      primary: "openai/gpt-4o" # Use GPT-4o instead of Claude
-      fallback:
-        - "anthropic/claude-sonnet-4.6"
-        - "google/gemini-2.5-pro"
+TIER_NAME:
+  primary: provider/model
+  fallback: []
 ```
+
+> 当前主链路暂未使用 `fallback` 列表，配置了也不会自动切换。上游故障转移建议依赖 new-api 的渠道能力。
+
+### hints
+
+用于控制 Agent 透传的 hint 对 tier 的影响。
+
+| 字段       | 类型   | 默认值  | 说明                                                                               |
+| :--------- | :----- | :------ | :--------------------------------------------------------------------------------- |
+| `thinking` | string | `"off"` | `"off"` 忽略 thinking 标志；`"complex"` 至少 COMPLEX；`"reasoning"` 至少 REASONING |
+
+> Claude Code 在 `CLAUDE_CODE_EFFORT_LEVEL=max` 等全局配置下会为每个请求附加 `thinking`，默认 `"off"` 可避免该信号过度拉高 tier。
+
+### ollama
+
+| 字段              | 类型    | 默认值                   | 说明                      |
+| :---------------- | :------ | :----------------------- | :------------------------ |
+| `enabled`         | boolean | `false`                  | 是否启用 Ollama AI 分类层 |
+| `baseUrl`         | string  | `http://localhost:11434` | Ollama 服务地址           |
+| `models.fast`     | string  | `qwen2.5:3b`             | 快速分类模型              |
+| `models.accurate` | string  | `qwen2.5:14b`            | 高精度分类模型            |
+| `timeout`         | number  | `30000`                  | Ollama 调用超时           |
+
+> 如果服务器没有运行 Ollama，请务必保持 `enabled: false`，否则每个请求都会等待连接失败后降级，造成明显延迟。
 
 ---
 
-## Scoring Weights
+## 认证方式
 
-The 15-dimension weighted scorer determines query complexity:
-
-| Dimension             | Weight | Detection                                |
-| --------------------- | ------ | ---------------------------------------- |
-| `reasoningMarkers`    | 0.18   | "prove", "theorem", "step by step"       |
-| `codePresence`        | 0.15   | "function", "async", "import", "```"     |
-| `multiStepPatterns`   | 0.12   | "first...then", "step 1", numbered lists |
-| `agenticTask`         | 0.10   | "run", "test", "fix", "deploy", "edit"   |
-| `technicalTerms`      | 0.10   | "algorithm", "kubernetes", "distributed" |
-| `tokenCount`          | 0.08   | short (<50) vs long (>500)               |
-| `creativeMarkers`     | 0.05   | "story", "poem", "brainstorm"            |
-| `questionComplexity`  | 0.05   | Multiple question marks                  |
-| `constraintCount`     | 0.04   | "at most", "O(n)", "maximum"             |
-| `imperativeVerbs`     | 0.03   | "build", "create", "implement"           |
-| `outputFormat`        | 0.03   | "json", "yaml", "schema"                 |
-| `simpleIndicators`    | 0.02   | "what is", "define", "translate"         |
-| `domainSpecificity`   | 0.02   | "quantum", "fpga", "genomics"            |
-| `referenceComplexity` | 0.02   | "the docs", "the api", "above"           |
-| `negationComplexity`  | 0.01   | "don't", "avoid", "without"              |
-
-### Custom Keywords
+### 本地模式（NexusRouter 托管 key）
 
 ```yaml
-routing:
-  scoring:
-    # Add domain-specific reasoning triggers
-    reasoningKeywords:
-      - "prove"
-      - "theorem"
-      - "formal verification"
-      - "type theory" # Custom
-
-    # Add framework-specific code triggers
-    codeKeywords:
-      - "function"
-      - "useEffect" # React-specific
-      - "prisma" # ORM-specific
+providers:
+  openai:
+    apiKey: ${OPENAI_API_KEY}
 ```
 
----
+客户端请求里的 key 不会被使用；NexusRouter 用配置里的 key 访问上游。
 
-## Advanced: Confidence Calibration
-
-The classifier uses sigmoid calibration to convert raw scores to confidence values:
-
-```
-confidence = 1 / (1 + exp(-k * (score - midpoint)))
-```
-
-Parameters:
-
-- `k = 8` — steepness of the sigmoid curve
-- `midpoint = 0.5` — score at which confidence = 50%
-
-### Override Thresholds
+### 远程 passthrough 模式（new-api）
 
 ```yaml
-routing:
-  classifier:
-    # Require higher confidence for tier assignment
-    confidenceThreshold: 0.8 # Default: 0.7
-
-    # Force REASONING tier at lower confidence
-    reasoningConfidence: 0.90 # Default: 0.97
+providers:
+  newapi-openai:
+    baseUrl: https://new-api.example.com/v1
+    passthroughApiKey: true
 ```
+
+- OpenAI 协议客户端带 `Authorization: Bearer sk-xxx`，NexusRouter 原样转发
+- Anthropic 协议客户端带 `x-api-key: sk-xxx`，NexusRouter 原样转发
+- 用户没带 key → NexusRouter 直接返回 401，不会到达 new-api
+- 上游 `baseUrl` 由服务端钉死，用户 key 不可能被转发到其他地方
+
+> **硬性要求：用户到 NexusRouter 之间必须走 HTTPS。** passthrough 模式下链路上跑的是真实令牌，裸 HTTP 等于广播。
 
 ---
 
-## Testing Configuration
+## 常见问题
 
-### Dry Run (No Payments)
+**Q: 启动报 `Environment variable OPENAI_API_KEY is not set`**
+配置里写了 `${OPENAI_API_KEY}` 但环境里没有。要么 `export`，要么改用 `${OPENAI_API_KEY:-默认值}`。
 
-For testing routing without spending USDC:
+**Q: 所有请求都报 `Upstream timed out after 1000ms`**
+没设置 `router.timeout`，schema 默认 1000ms。在 `config.yaml` 里加 `timeout: 300000`。
 
-```typescript
-import { route, DEFAULT_ROUTING_CONFIG, BLOCKRUN_MODELS } from "@blockrun/clawrouter";
+**Q: 每个请求都慢几秒才响应**
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。关掉它或启动 Ollama。
 
-// Build pricing map
-const modelPricing = new Map();
-for (const m of BLOCKRUN_MODELS) {
-  modelPricing.set(m.id, { inputPrice: m.inputPrice, outputPrice: m.outputPrice });
-}
+**Q: 上游 404，模型不存在**
+`tiers` 里的模型名和上游平台（尤其 new-api）里的名字不一致。转发时 `provider/` 前缀会被剥掉，上游收到的是 `/` 后面的部分，按那个核对。
 
-// Test routing decisions locally
-const decision = route("Prove sqrt(2) is irrational", undefined, 4096, {
-  config: DEFAULT_ROUTING_CONFIG,
-  modelPricing,
-});
-
-console.log(decision);
-// { model: "deepseek/deepseek-reasoner", tier: "REASONING", ... }
-```
-
-### Run Tests
-
-```bash
-# Router tests (no wallet needed)
-npx tsx test/e2e.ts
-
-# Proxy reuse tests
-npx tsx test/proxy-reuse.ts
-
-# Full e2e with payments (requires funded wallet)
-BLOCKRUN_WALLET_KEY=0x... npx tsx test/e2e.ts
-```
+**Q: passthrough 模式返回 401 `API key required`**
+客户端没带 key。Claude Code 检查 `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`，OpenAI 客户端检查 API Key 配置项。

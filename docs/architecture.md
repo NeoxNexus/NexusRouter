@@ -1,487 +1,268 @@
-# Architecture
+# NexusRouter 架构
 
-Technical deep-dive into ClawRouter's internals.
+NexusRouter 是一个处于 Agent 与上游模型之间的**智能路由代理层**。它在本地对请求进行复杂度分类，然后在 <1ms 内决定应该把请求转发给哪个档位的模型。
 
-## Table of Contents
+## 目录
 
-- [System Overview](#system-overview)
-- [Request Flow](#request-flow)
-- [Routing Engine](#routing-engine)
-- [Payment System](#payment-system)
-- [Optimizations](#optimizations)
-- [Source Structure](#source-structure)
-
----
-
-## System Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     OpenClaw / Your App                     │
-│                   (OpenAI-compatible client)                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 ClawRouter Proxy (localhost)                │
-│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
-│  │   Dedup     │→ │   Router    │→ │   x402 Payment    │   │
-│  │   Cache     │  │  (14-dim)   │  │   (EIP-712 USDC)  │   │
-│  └─────────────┘  └─────────────┘  └───────────────────┘   │
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
-│  │  Fallback   │  │   Balance   │  │   SSE Heartbeat   │   │
-│  │   Chain     │  │   Monitor   │  │   (streaming)     │   │
-│  └─────────────┘  └─────────────┘  └───────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      BlockRun API                           │
-│    402 → Sign Payment → Retry → OpenAI/Anthropic/Google    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Key Principles:**
-
-- **100% local routing** — No API calls for model selection
-- **Client-side only** — Your wallet key never leaves your machine
-- **Non-custodial** — USDC stays in your wallet until spent
+- [系统概览](#系统概览)
+- [请求流水线](#请求流水线)
+- [分类器](#分类器)
+- [协议适配层](#协议适配层)
+- [Agent 画像](#agent-画像)
+- [Provider 转发](#provider-转发)
+- [部署形态](#部署形态)
+- [源码结构](#源码结构)
 
 ---
 
-## Request Flow
+## 系统概览
 
-### 1. Request Received
-
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Agent 客户端                                  │
+│   Claude Code / Cursor / OpenClaw / 任意 OpenAI-Compatible 客户端   │
+└─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼  HTTPS / HTTP
+┌─────────────────────────────────────────────────────────────────────┐
+│                        NexusRouter                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────────┐   │
+│  │ Protocol     │  │ AgentProfile │  │ HybridClassifier        │   │
+│  │ Adapter      │→ │ (hints /     │→ │ 规则层 → 启发式层 → AI层 │   │
+│  │ (OpenAI/     │  │  weights)    │  │ → Tier 决策              │   │
+│  │  Anthropic)  │  │              │  │                         │   │
+│  └──────────────┘  └──────────────┘  └─────────────────────────┘   │
+│                               │                                     │
+│                               ▼                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ ProviderForwarder → 按 config.tiers 选择模型并转发上游        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│           上游模型 / 网关 / new-api                                  │
+│   OpenAI / Anthropic / Google / DeepSeek / 本地 vLLM / new-api       │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-POST /v1/chat/completions
+
+**核心原则：**
+
+- **纯本地分类** — 路由决策不调用任何外部 API，零额外 token 成本
+- **协议透明** — 对客户端保持 OpenAI / Anthropic 原生协议
+- **按复杂度选档** — 简单请求走便宜模型，复杂推理才走旗舰模型
+- **可插拔画像** — 不同 Agent 可拥有不同的加权策略
+
+---
+
+## 请求流水线
+
+### 1. 接收请求
+
+```text
+POST /v1/chat/completions        # OpenAI 协议
+POST /anthropic/v1/messages      # Anthropic 协议（Claude Code 用 /anthropic）
+```
+
+`model` 字段为 `auto` 时触发自动路由；填 `provider/model` 时跳过分类直接转发。
+
+### 2. 协议归一化
+
+`ProtocolAdapter` 把 OpenAI / Anthropic 请求统一成 `UnifiedRequest`：
+
+- 提取最后一条 user 消息作为分类输入
+- 提取 `tools`、`stream`、`max_tokens` 等元信息
+- 识别请求来源的 Agent 类型
+
+### 3. Agent 画像加权
+
+`AgentProfile` 根据入口路径或特征识别 Agent：
+
+| Agent         | 行为特征                       | 默认权重倾向                               |
+| :------------ | :----------------------------- | :----------------------------------------- |
+| `claude-code` | 大量后台系统消息、工具调用频繁 | 压低 SIMPLE 阈值，避免把闲聊误判为复杂任务 |
+| `openclaw`    | 标准 OpenAI 协议客户端         | 100% 信任分类器                            |
+| `cursor`      | OpenAI 协议，上下文较长        | 框架已注册，画像待完善                     |
+
+### 4. 三层分类器
+
+```text
+[请求] → L0 规则层 (<0.1ms) → 命中则直接返回 Tier
+       → L1 启发式层 (~1ms)   → 15 维评分 + 置信度
+       → L2 Ollama AI 层      → 本地 LLM 兜底（可选）
+```
+
+分类结果：
+
+```text
 {
-  "model": "blockrun/auto",
-  "messages": [{ "role": "user", "content": "What is 2+2?" }],
-  "stream": true
+  tier: "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING",
+  layer: "rule" | "heuristic" | "ai" | "fallback",
+  confidence: 0..1,
+  agent: "claude-code" | "openclaw" | ...
 }
 ```
 
-### 2. Deduplication Check
+### 5. Provider 转发
 
-```typescript
-// SHA-256 hash of request body
-const dedupKey = RequestDeduplicator.hash(body);
+按 `config.tiers[tier].primary` 选择模型，去掉 `provider/` 前缀后转发到对应 provider：
 
-// Check completed cache (30s TTL)
-const cached = deduplicator.getCached(dedupKey);
-if (cached) {
-  return cached; // Replay cached response
-}
-
-// Check in-flight requests
-const inflight = deduplicator.getInflight(dedupKey);
-if (inflight) {
-  return await inflight; // Wait for original to complete
-}
-```
-
-### 3. Smart Routing (if model is `blockrun/auto`)
-
-```typescript
-// Extract user's last message
-const prompt = messages.findLast((m) => m.role === "user")?.content;
-
-// Run 14-dimension weighted scorer
-const decision = route(prompt, systemPrompt, maxTokens, {
-  config: DEFAULT_ROUTING_CONFIG,
-  modelPricing,
-});
-
-// decision = {
-//   model: "google/gemini-2.5-flash",
-//   tier: "SIMPLE",
-//   confidence: 0.92,
-//   savings: 0.99,
-//   costEstimate: 0.0012,
-// }
-```
-
-### 4. Balance Check
-
-```typescript
-const estimated = estimateAmount(modelId, bodyLength, maxTokens);
-const sufficiency = await balanceMonitor.checkSufficient(estimated);
-
-if (sufficiency.info.isEmpty) {
-  throw new EmptyWalletError(walletAddress);
-}
-
-if (!sufficiency.sufficient) {
-  throw new InsufficientFundsError({ ... });
-}
-
-if (sufficiency.info.isLow) {
-  onLowBalance({ balanceUSD, walletAddress });
-}
-```
-
-### 5. SSE Heartbeat (for streaming)
-
-```typescript
-if (isStreaming) {
-  // Send 200 + headers immediately
-  res.writeHead(200, {
-    "content-type": "text/event-stream",
-    "cache-control": "no-cache",
-  });
-
-  // Heartbeat every 2s to prevent timeout
-  heartbeatInterval = setInterval(() => {
-    res.write(": heartbeat\n\n");
-  }, 2000);
-}
-```
-
-### 6. x402 Payment Flow
-
-```
-1. Request → BlockRun API
-2. ← 402 Payment Required
-   {
-     "x402Version": 1,
-     "accepts": [{
-       "scheme": "exact",
-       "network": "base",
-       "maxAmountRequired": "5000",  // $0.005
-       "resource": "https://blockrun.ai/api/v1/chat/completions",
-       "payTo": "0x..."
-     }]
-   }
-3. Sign EIP-712 typed data with wallet key
-4. Retry with X-PAYMENT header
-5. ← 200 OK with response
-```
-
-### 7. Fallback Chain (on provider errors)
-
-```typescript
-const FALLBACK_STATUS_CODES = [400, 401, 402, 403, 429, 500, 502, 503, 504];
-
-for (const model of fallbackChain) {
-  const result = await tryModelRequest(model, ...);
-
-  if (result.success) {
-    return result.response;
-  }
-
-  if (result.isProviderError && !isLastAttempt) {
-    console.log(`Fallback: ${model} → next`);
-    continue;
-  }
-
-  break;
-}
-```
-
-### 8. Response Streaming
-
-```typescript
-// Convert non-streaming JSON to SSE format
-// (BlockRun API returns JSON, we simulate SSE)
-
-// Chunk 1: role
-data: {"id":"...","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"}}]}
-
-// Chunk 2: content
-data: {"id":"...","object":"chat.completion.chunk","choices":[{"delta":{"content":"4"}}]}
-
-// Chunk 3: finish
-data: {"id":"...","object":"chat.completion.chunk","choices":[{"delta":{},"finish_reason":"stop"}]}
-
-data: [DONE]
-```
+- OpenAI 协议 provider：带 `Authorization: Bearer <apiKey>`
+- Anthropic 协议 provider：带 `x-api-key: <apiKey>`
+- `passthroughApiKey: true` 时，使用客户端自带的 key
 
 ---
 
-## Routing Engine
+## 分类器
 
-### Weighted Scorer
+### 15 维启发式评分
 
-The routing engine uses a 14-dimension weighted scorer that runs entirely locally:
+分类器从以下维度评估请求复杂度：
 
-```typescript
-function classifyByRules(
-  prompt: string,
-  systemPrompt: string | undefined,
-  tokenCount: number,
-  config: ScoringConfig,
-): ClassificationResult {
-  let score = 0;
-  const signals: string[] = [];
+1. 总 Token 规模
+2. 代码块 / 技术关键词
+3. 逻辑推理诉求
+4. 底层技术浓度
+5. 创造发散度
+6. 闲聊与简单问询
+7. 多步协作关联
+8. 语法分支复杂度
+9. 绝对命令强度
+10. 返回值强约束
+11. JSON/XML/正则输出约束
+12. 资料引用广度
+13. 否定与对抗逻辑
+14. 特定工业词频
+15. Agentic 意图雷达
 
-  // Dimension 1: Reasoning markers (weight: 0.18)
-  const reasoningCount = countKeywords(prompt, config.reasoningKeywords);
-  if (reasoningCount >= 2) {
-    score += 0.18 * 2; // Double weight for multiple markers
-    signals.push("reasoning");
-  }
+### Tier 判定
 
-  // Dimension 2: Code presence (weight: 0.15)
-  if (hasCodeBlock(prompt) || countKeywords(prompt, config.codeKeywords) > 0) {
-    score += 0.15;
-    signals.push("code");
-  }
-
-  // ... 12 more dimensions
-
-  // Sigmoid calibration
-  const confidence = sigmoid(score, (k = 8), (midpoint = 0.5));
-
-  return { score, confidence, tier: selectTier(score, confidence), signals };
-}
-```
-
-### Tier Selection
-
-```typescript
-function selectTier(score: number, confidence: number): Tier | null {
-  // Special case: 2+ reasoning markers → REASONING at high confidence
-  if (signals.includes("reasoning") && reasoningCount >= 2) {
-    return "REASONING";
-  }
-
-  if (confidence < 0.7) {
-    return null; // Ambiguous → default to MEDIUM
-  }
-
-  if (score < 0.3) return "SIMPLE";
-  if (score < 0.6) return "MEDIUM";
-  if (score < 0.8) return "COMPLEX";
-  return "REASONING";
-}
-```
-
-### Overrides
-
-Certain conditions force tier assignment:
-
-```typescript
-// Large context → COMPLEX
-if (tokenCount > 100000) {
-  return { tier: "COMPLEX", method: "override:large_context" };
-}
-
-// Structured output (JSON/YAML) → min MEDIUM
-if (systemPrompt?.includes("json") || systemPrompt?.includes("yaml")) {
-  return { tier: Math.max(tier, "MEDIUM"), method: "override:structured" };
-}
-```
+| Tier      | 典型特征                         | 示例                |
+| :-------- | :------------------------------- | :------------------ |
+| SIMPLE    | 问候、列文件、状态确认、简单翻译 | "hi" / "ls 一下"    |
+| MEDIUM    | 单文件代码补全、解释、普通对话   | "解释这段代码"      |
+| COMPLEX   | 多文件重构、架构设计、复杂 debug | "重构这个模块"      |
+| REASONING | 数学证明、逻辑推导、多步规划     | "证明 sqrt(2) 无理" |
 
 ---
 
-## Payment System
+## 协议适配层
 
-### x402 Protocol
+NexusRouter 同时暴露两种协议端点：
 
-ClawRouter uses the [x402 protocol](https://x402.org) for micropayments:
+| 协议          | 路径           | 用途                         |
+| :------------ | :------------- | :--------------------------- |
+| Anthropic     | `/anthropic`   | Claude Code                  |
+| OpenAI        | `/v1`          | Cursor、OpenClaw、通用客户端 |
+| OpenClaw 兼容 | `/openclaw/v1` | 旧版 OpenClaw                |
 
-```
-┌────────────┐     ┌────────────┐     ┌────────────┐
-│   Client   │────▶│  BlockRun  │────▶│  Provider  │
-│ (ClawRouter)     │    API     │     │ (OpenAI)   │
-└────────────┘     └────────────┘     └────────────┘
-      │                  │
-      │ 1. Request       │
-      │─────────────────▶│
-      │                  │
-      │ 2. 402 + price   │
-      │◀─────────────────│
-      │                  │
-      │ 3. Sign payment  │
-      │ (EIP-712 USDC)   │
-      │                  │
-      │ 4. Retry + sig   │
-      │─────────────────▶│
-      │                  │
-      │ 5. Response      │
-      │◀─────────────────│
-```
-
-### EIP-712 Signing
-
-```typescript
-const typedData = {
-  types: {
-    Payment: [
-      { name: "scheme", type: "string" },
-      { name: "network", type: "string" },
-      { name: "amount", type: "uint256" },
-      { name: "resource", type: "string" },
-      { name: "payTo", type: "address" },
-      { name: "nonce", type: "uint256" },
-    ],
-  },
-  primaryType: "Payment",
-  domain: { name: "x402", version: "1" },
-  message: {
-    scheme: "exact",
-    network: "base",
-    amount: "5000", // 0.005 USDC (6 decimals)
-    resource: "https://blockrun.ai/api/v1/chat/completions",
-    payTo: "0x...",
-    nonce: Date.now(),
-  },
-};
-
-const signature = await account.signTypedData(typedData);
-```
-
-### Pre-Authorization
-
-To skip the 402 round trip:
-
-```typescript
-// Estimate cost before request
-const estimated = estimateAmount(modelId, bodyLength, maxTokens);
-
-// Pre-sign payment with estimate (+ 20% buffer)
-const preAuth: PreAuthParams = { estimatedAmount: estimated };
-
-// Request with pre-signed payment
-const response = await payFetch(url, init, preAuth);
-```
+同协议请求在转发时尽量保持原始 body，减少序列化开销。
 
 ---
 
-## Optimizations
+## Agent 画像
 
-### 1. Request Deduplication
+`AgentProfile` 是一种插件化扩展点。每个画像可以：
 
-Prevents double-charging when clients retry after timeout:
+- 从请求中提取 hints（如 `thinking` 标志）
+- 根据画像特点调整分类器权重
+- 对最终 tier 做上下限约束
 
-```typescript
-class RequestDeduplicator {
-  private cache = new Map<string, CachedResponse>();
-  private inflight = new Map<string, Promise<CachedResponse>>();
-  private TTL_MS = 30_000;
+当前内置画像：
 
-  static hash(body: Buffer): string {
-    return createHash("sha256").update(body).digest("hex");
-  }
+- `claude-code`
+- `openclaw`
+- `cursor`（框架占位）
 
-  getCached(key: string): CachedResponse | undefined {
-    const entry = this.cache.get(key);
-    if (entry && Date.now() - entry.completedAt < this.TTL_MS) {
-      return entry;
-    }
-    return undefined;
-  }
-}
-```
-
-### 2. SSE Heartbeat
-
-Prevents upstream timeout while waiting for x402 payment:
-
-```
-0s:  Request received
-0s:  → 200 OK, Content-Type: text/event-stream
-0s:  → : heartbeat
-2s:  → : heartbeat  (client stays connected)
-4s:  → : heartbeat
-5s:  x402 payment completes
-5s:  → data: {"choices":[...]}
-5s:  → data: [DONE]
-```
-
-### 3. Balance Caching
-
-Avoids RPC calls on every request:
-
-```typescript
-class BalanceMonitor {
-  private cachedBalance: bigint | undefined;
-  private cacheTime = 0;
-  private CACHE_TTL_MS = 60_000; // 1 minute
-
-  async checkBalance(): Promise<BalanceInfo> {
-    if (this.cachedBalance !== undefined && Date.now() - this.cacheTime < this.CACHE_TTL_MS) {
-      return this.formatBalance(this.cachedBalance);
-    }
-
-    // Fetch from Base RPC
-    const balance = await this.fetchUSDCBalance();
-    this.cachedBalance = balance;
-    this.cacheTime = Date.now();
-    return this.formatBalance(balance);
-  }
-
-  // Optimistic deduction after successful payment
-  deductEstimated(amount: bigint): void {
-    if (this.cachedBalance !== undefined) {
-      this.cachedBalance -= amount;
-    }
-  }
-}
-```
-
-### 4. Proxy Reuse
-
-Detects and reuses existing proxy to avoid `EADDRINUSE`:
-
-```typescript
-async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
-  const port = options.port ?? getProxyPort();
-
-  // Check if proxy already running
-  const existingWallet = await checkExistingProxy(port);
-  if (existingWallet) {
-    // Return handle that uses existing proxy
-    return {
-      port,
-      baseUrl: `http://127.0.0.1:${port}`,
-      walletAddress: existingWallet,
-      close: async () => {},  // No-op
-    };
-  }
-
-  // Start new proxy
-  const server = createServer(...);
-  server.listen(port, "127.0.0.1");
-  // ...
-}
-```
+新增画像只需实现 `AgentProfile` 接口并注册到 `src/adapter/profile.ts`。
 
 ---
 
-## Source Structure
+## Provider 转发
 
+Provider 配置示例：
+
+```yaml
+providers:
+  openai:
+    apiKey: ${OPENAI_API_KEY}
+    baseUrl: https://api.openai.com/v1
+    maxRetries: 3
+    passthroughApiKey: false
+
+  anthropic:
+    apiKey: ${ANTHROPIC_API_KEY}
+    baseUrl: https://api.anthropic.com
+    passthroughApiKey: false
 ```
+
+转发时：
+
+- `openai/gpt-4o` → 发给 `openai` provider，模型名保留 `gpt-4o`
+- `anthropic/claude-sonnet-4-5` → 发给 `anthropic` provider，模型名保留 `claude-sonnet-4-5`
+
+---
+
+## 部署形态
+
+### 本地单人模式
+
+```text
+[Agent] → http://127.0.0.1:8402/...
+```
+
+API key 由 NexusRouter 本地 `config.yaml` 管理。
+
+### 远程团队模式（推荐）
+
+```text
+[成员 Agent] ──自己的 sk──▶ [nginx :443] ──▶ [NexusRouter :8402] ──透传 sk──▶ [new-api] ──▶ [上游]
+```
+
+- 每个成员使用自己的 new-api 令牌
+- NexusRouter 只负责分类和选档
+- new-api 负责认证、配额、计费、渠道管理
+
+完整方案见 [`deploy/new-api/README.md`](../deploy/new-api/README.md)。
+
+---
+
+## 源码结构
+
+```text
 src/
-├── index.ts          # Plugin entry, OpenClaw integration
-├── proxy.ts          # HTTP proxy server, request handling
-├── provider.ts       # OpenClaw provider registration
-├── models.ts         # 30+ model definitions with pricing
-├── auth.ts           # Wallet key resolution (file → env → generate)
-├── x402.ts           # EIP-712 payment signing, @x402/fetch
-├── balance.ts        # USDC balance monitoring, caching
-├── dedup.ts          # Request deduplication (SHA-256 → cache)
-├── payment-cache.ts  # Pre-authorization caching
-├── logger.ts         # JSON usage logging to disk
-├── errors.ts         # Custom error types
-├── retry.ts          # Fetch retry with exponential backoff
-├── version.ts        # Version from package.json
-└── router/
-    ├── index.ts      # route() entry point
-    ├── rules.ts      # 14-dimension weighted scorer
-    ├── selector.ts   # Tier → model selection + fallback
-    ├── config.ts     # Default routing configuration
-    └── types.ts      # TypeScript type definitions
+├── server.ts              # Fastify HTTP 服务器、请求流水线
+├── cli.ts                 # 命令行入口
+├── config/
+│   ├── schema.ts          # Zod 配置校验
+│   └── loader.ts          # YAML 加载与环境变量展开
+├── adapter/
+│   ├── adapter.ts         # ProtocolAdapter 策略工厂
+│   ├── anthropic.ts       # Anthropic 协议适配
+│   ├── openai.ts          # OpenAI 协议适配
+│   ├── profile.ts         # AgentProfile 注册表
+│   └── types.ts           # 统一请求/响应类型
+├── classifier/
+│   ├── hybrid.ts          # 三层分类器入口
+│   ├── rules.ts           # 规则层
+│   └── ...                # 启发式 / AI 层
+├── router/
+│   ├── selector.ts        # Tier → 模型选择
+│   ├── tool-intent.ts     # 工具调用意图识别
+│   └── config.ts          # 默认路由配置
+├── models.ts              # 模型元数据注册表
+├── errors.ts              # 错误类型
+├── logger.ts              # 日志
+└── ...                    # 其他能力模块
 ```
 
-### Key Files
+### 关键文件
 
-| File              | Purpose                                               |
-| ----------------- | ----------------------------------------------------- |
-| `proxy.ts`        | Core request handling, SSE simulation, fallback chain |
-| `router/rules.ts` | 14-dimension weighted scorer, multilingual keywords   |
-| `x402.ts`         | EIP-712 typed data signing, payment header formatting |
-| `balance.ts`      | USDC balance via Base RPC, caching, thresholds        |
-| `dedup.ts`        | SHA-256 hashing, 30s response cache                   |
+| 文件                       | 职责                                 |
+| :------------------------- | :----------------------------------- |
+| `src/server.ts`            | 请求流水线编排、响应头注入、错误处理 |
+| `src/adapter/adapter.ts`   | 协议检测与 Adapter 分发              |
+| `src/adapter/profile.ts`   | Agent 画像注册与加权融合             |
+| `src/classifier/hybrid.ts` | 三层分类器                           |
+| `src/router/selector.ts`   | 按 tier 选择模型                     |
+| `src/models.ts`            | 模型注册表与能力信息                 |

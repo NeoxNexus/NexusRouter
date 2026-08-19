@@ -1,8 +1,8 @@
 # NexusRouter 使用手册
 
-> 版本：v0.12.5 | 更新日期：2026-08-13
+> 版本：v0.12.5 | 更新日期：2026-08-19
 >
-> 本手册对应代码当前真实行为编写。仓库中 `docs/` 下部分旧文档仍残留 ClawRouter/BlockRun 时代的描述，以本手册为准。
+> 本手册对应代码当前真实行为编写。
 
 ## 目录
 
@@ -14,6 +14,13 @@
 - [6. 接入各 Agent](#6-接入各-agent)
 - [7. 四级路由与调优](#7-四级路由与调优)
 - [8. 远端多人部署（对接 new-api）](#8-远端多人部署对接-new-api)
+  - [8.1 架构](#81-架构)
+  - [8.2 NexusRouter 配置](#82-nexusrouter-配置)
+  - [8.3 nginx 反代示例](#83-nginx-反代示例)
+  - [8.4 systemd 常驻](#84-systemd-常驻)
+  - [8.5 Docker / Compose 一键部署](#85-docker--compose-一键部署)
+  - [8.6 成员侧配置](#86-成员侧配置)
+  - [8.7 上线 Checklist](#87-上线-checklist)
 - [9. 观测与调试](#9-观测与调试)
 - [10. 常见问题 FAQ](#10-常见问题-faq)
 - [11. 当前已知限制](#11-当前已知限制)
@@ -370,7 +377,27 @@ WantedBy=multi-user.target
 sudo systemctl enable --now nexusrouter
 ```
 
-### 8.5 成员侧配置
+### 8.5 Docker / Compose 一键部署
+
+我们更推荐使用仓库自带的 Docker Compose 方案：
+
+```bash
+cd deploy/new-api
+# 修改 config.yaml、docker-compose.yml、nginx.conf 中的域名与证书
+vim config.yaml docker-compose.yml nginx.conf
+docker compose up -d --build
+```
+
+该方案包含：
+
+- 多阶段构建的 NexusRouter 生产镜像
+- nginx TLS 终止 + SSE 流式支持
+- `expose` 而非 `ports` 8402，只让 nginx 能访问 NexusRouter
+- 完整的 passthrough 配置模板
+
+详细说明见 [`deploy/new-api/README.md`](../deploy/new-api/README.md)。
+
+### 8.6 成员侧配置
 
 每人去 new-api 后台申请自己的令牌，然后：
 
@@ -381,7 +408,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-<自己的 new-api 令牌>"
 
 或用 cc-switch 配成供应商，全组共享同一份配置模板、各填各的令牌。
 
-### 8.6 上线 Checklist
+### 8.7 上线 Checklist
 
 - [ ] `router.timeout` 已显式设置（≥ 300000）
 - [ ] `ollama.enabled: false`（除非服务器真装了 Ollama）
@@ -421,7 +448,7 @@ curl http://127.0.0.1:8402/health
 ### 9.4 测试命令
 
 ```bash
-npm test                              # 单元测试（348 个）
+npm test                              # 单元测试（419 个）
 npm run typecheck                     # 类型检查
 npm run test:resilience:quick         # 快速韧性测试
 npm run test:e2e:tool-ids             # 端到端 tool id 测试
