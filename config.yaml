@@ -16,38 +16,33 @@ router:
       fallbackConfidence: 0.75
 
 providers:
-  # gorouter.app（new-api 网关）说 Anthropic 协议，四档模型全部走这里。
-  # passthroughApiKey: CC-Switch 传来的 sk 原样转发给 gorouter，按个人令牌计费。
-  # 上游地址由本文件钉死，客户端令牌不可能被转发到别处。
+  openai:
+    apiKey: ${OPENAI_API_KEY}
+    maxRetries: 3
+    # 远端多人部署（对接 new-api 等网关）时：
+    # 1. baseUrl 指向网关，例如 baseUrl: https://new-api.example.com/v1
+    # 2. 开启 passthroughApiKey: true，每个用户透传自己的令牌（config 里的 apiKey 可省略）
+    # 注意：开启后用户到 NexusRouter 之间必须走 HTTPS，令牌是真实凭证
   anthropic:
-    baseUrl: https://gorouter.app
-    passthroughApiKey: true
+    apiKey: ${ANTHROPIC_API_KEY}
+    maxRetries: 3
+  google:
+    apiKey: ${GOOGLE_API_KEY}
     maxRetries: 3
 
-# 四档从低到高对应 gorouter 的实际开通模型。
-# 注意：转发时 `anthropic/` 前缀会被剥掉，上游收到的是斜杠后面的裸模型名。
 tiers:
   SIMPLE:
-    primary: anthropic/claude-opus-4-8
-    fallback: []
+    primary: openai/gpt-4o-mini
+    fallback: [google/gemini-2.5-flash-lite-preview-06-05]
   MEDIUM:
-    primary: anthropic/claude-opus-4-8-thinking
-    fallback: []
+    primary: openai/gpt-4o
+    fallback: [google/gemini-2.5-flash-preview-05-20]
   COMPLEX:
-    primary: anthropic/claude-opus-5
-    fallback: []
+    primary: anthropic/claude-sonnet-4-20250514
+    fallback: [google/gemini-2.5-pro-preview-05-20]
   REASONING:
-    primary: anthropic/claude-opus-5-thinking
-    fallback: []
-
-# Agent 提示如何影响路由档位。
-# thinking 开关：CC 设置 CLAUDE_CODE_EFFORT_LEVEL 后每轮请求都带 thinking，
-# 恒真信号不携带单轮信息量 —— 默认 off，分类器说了算。
-#   off       (默认) thinking 不参与档位融合
-#   complex           thinking 请求至少 COMPLEX
-#   reasoning         thinking 请求至少 REASONING（旧行为）
-hints:
-  thinking: off
+    primary: openai/o3-mini
+    fallback: [anthropic/claude-haiku-3-5-20250620]
 
 # Ollama 本地小模型分类层。服务器上没装 Ollama 时必须保持 false，
 # 否则每个请求都要等连接失败降级，白白增加延迟
