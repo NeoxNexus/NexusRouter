@@ -241,4 +241,4 @@ ANTHROPIC_BASE_URL: http://127.0.0.1:8402/anthropic
 ANTHROPIC_AUTH_TOKEN: nexusrouter
 ```
 
-典型用法：cc-switch 里保留"NexusRouter（省钱路由）"和"官方直连（满血稳定）"两档，按场景一键切换。
+典型用法：cc-switch 里保留"NexusRouter（智能路由）"和"官方直连（满血稳定）"两档，按场景一键切换。
