@@ -3,6 +3,8 @@ import { createServer as createHttpServer, type RequestListener, type Server } f
 import { loadConfig, type Config } from "./config/loader.js";
 import { OllamaClient } from "./ollama/client.js";
 import { HybridClassifier } from "./classifier/hybrid.js";
+import { OpenAICompatClassifier } from "./classifier/openai-compat.js";
+import type { AiClassifier } from "./classifier/ai-classifier.js";
 import {
   createAdapter,
   registerAdapter,
@@ -181,7 +183,7 @@ function extractClassificationText(
 //
 //   1. toUnified()        — Convert raw request to internal format
 //   2. extractHints()     — Get agent-specific hints (optional)
-//   3. classify()         — HybridClassifier layered rules → heuristic → local AI → fallback
+//   3. classify()         — HybridClassifier layered rules → heuristic → AI → fallback
 //   4. weightedModel()    — Fuse hints + classifier result
 //   5. forward()          — Send to upstream provider (tier fallbacks on failure)
 //   6. Stream/Return      — Return response to caller
@@ -659,15 +661,43 @@ export async function createServer(
   });
   app.decorate("rawRequestHandler", capturedHandler);
 
-  const ollama = new OllamaClient({
+  // ─── Layer 2 分类后端选择 ───
+  // 默认走 Ollama 本地小模型；aiClassifier.provider === "openai-compat" 时改用
+  // OpenAI 兼容网关（new-api / vLLM）。该段被显式配置即视为启用 Layer 2，
+  // 不看 ollama.enabled —— 它只管 ollama 路径。baseUrl/model 缺一无法构造，
+  // 告警后回退 Ollama 路径（此时仍由 ollama.enabled 决定是否启用）。
+  const aiLayer = config.aiClassifier;
+  let ai: AiClassifier | undefined;
+  let aiEnabled = config.ollama.enabled;
+  if (aiLayer.provider === "openai-compat") {
+    if (aiLayer.baseUrl && aiLayer.model) {
+      ai = new OpenAICompatClassifier({
+        baseUrl: aiLayer.baseUrl,
+        apiKey: aiLayer.apiKey,
+        model: aiLayer.model,
+        timeout: aiLayer.timeout,
+      });
+      aiEnabled = true;
+    } else {
+      app.log.warn(
+        "aiClassifier.provider is openai-compat but baseUrl/model is missing; " +
+          (config.ollama.enabled
+            ? "falling back to the Ollama classifier path"
+            : "ollama.enabled is false, so the AI classifier layer is disabled entirely"),
+      );
+    }
+  }
+  ai ??= new OllamaClient({
     baseUrl: config.ollama.baseUrl,
     timeout: config.ollama.timeout,
     model: config.ollama.models.fast,
   });
-  const classifier = new HybridClassifier(ollama, {
+  const classifier = new HybridClassifier(ai, {
     heuristicThreshold: config.router.layers.heuristic.confidenceThreshold,
     aiThreshold: config.router.layers.ai.fallbackConfidence,
-    aiEnabled: config.ollama.enabled,
+    aiEnabled,
+    onAiError: (err) =>
+      app.log.warn({ err }, "AI classifier layer failing — check aiClassifier config"),
   });
 
   // Health check

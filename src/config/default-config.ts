@@ -76,6 +76,17 @@ ollama:
     fast: qwen3:4b
     accurate: qwen3:8b
   timeout: 800
+
+# OpenAI 兼容分类层（Layer 2 的另一种后端）：对接 new-api 网关或 vLLM 私有
+# 部署，替代本地 Ollama。配置本段即视为启用（不看 ollama.enabled）；baseUrl
+# 需含 /v1，model 用上游平台上的模型名（指向网关上的便宜/私有模型）。
+# apiKey 留空则不携带鉴权头，兼容无鉴权的内网网关。
+# aiClassifier:
+#   provider: openai-compat
+#   baseUrl: https://new-api.example.com/v1
+#   apiKey: \${NEW_API_KEY}
+#   model: gpt-4o-mini
+#   timeout: 800
 `;
 
 /**

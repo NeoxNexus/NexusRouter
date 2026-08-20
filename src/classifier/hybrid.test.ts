@@ -158,6 +158,35 @@ describe("HybridClassifier", () => {
     });
   });
 
+  describe("Layer 2 error reporting via onAiError", () => {
+    it("reports only the first of consecutive AI classification failures", async () => {
+      const failingAi = {
+        classify: vi.fn().mockRejectedValue(new Error("OpenAI-compat request failed: 401")),
+      } as unknown as OllamaClient;
+      const onAiError = vi.fn();
+
+      const classifier = new HybridClassifier(failingAi, {
+        ...config,
+        aiEnabled: true,
+        onAiError,
+      });
+
+      // 连续两次低置信请求都走 Layer 2 并失败，onAiError 只在首个错误时触发。
+      for (let i = 0; i < 2; i++) {
+        const result = await classifier.classify("process this data", {
+          messageCount: 1,
+          hasSystemPrompt: false,
+          hasTools: false,
+        });
+        expect(result.layer).toBe("fallback");
+      }
+
+      expect(failingAi.classify).toHaveBeenCalledTimes(2);
+      expect(onAiError).toHaveBeenCalledTimes(1);
+      expect(onAiError.mock.calls[0][0]).toBeInstanceOf(Error);
+    });
+  });
+
   describe("latency tracking", () => {
     it("should track latency for each layer", async () => {
       const mockResponse = {

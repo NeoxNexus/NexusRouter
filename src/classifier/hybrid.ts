@@ -1,18 +1,24 @@
-import {
-  OllamaClient,
-  type HeuristicContext,
-  type ClassificationResult as OllamaResult,
-  type Tier,
+import type {
+  HeuristicContext,
+  ClassificationResult as OllamaResult,
+  Tier,
 } from "../ollama/client.js";
+import type { AiClassifier } from "./ai-classifier.js";
 
 export interface HybridConfig {
   heuristicThreshold: number;
   aiThreshold: number;
   /**
-   * Layer 2（Ollama 本地模型）总开关。false 时整块跳过，不会向
-   * ollama.baseUrl 发任何请求，低置信流量直接落 Layer 3 兜底。
+   * Layer 2（AI 分类层）总开关。false 时整块跳过，不会向分类后端
+   * （Ollama 或 OpenAI 兼容网关）发任何请求，低置信流量直接落 Layer 3 兜底。
    */
   aiEnabled: boolean;
+  /**
+   * Layer 2 分类失败的告警钩子。只在进程内首个错误时调用一次，之后抑制：
+   * Ollama 本地暂时性失败可忽略，但 openai-compat 远程网关的配置错误
+   * （400/401/404）每请求必现，一次性 warn 即可暴露，无需每请求刷日志。
+   */
+  onAiError?: (err: unknown) => void;
 }
 
 interface RuleResult {
@@ -139,8 +145,11 @@ function upgradeTier(current: Tier): Tier {
 }
 
 export class HybridClassifier {
+  /** 首个 AI 层错误后置位，onAiError 只触发一次。 */
+  private aiErrorNotified = false;
+
   constructor(
-    private ollama: OllamaClient,
+    private ai: AiClassifier,
     private config: HybridConfig,
   ) {}
 
@@ -175,10 +184,10 @@ export class HybridClassifier {
       };
     }
 
-    // Layer 2: AI (Ollama fast model, < 10ms)。aiEnabled === false 时整块跳过。
+    // Layer 2: AI（Ollama 或 OpenAI 兼容网关，< 10ms）。aiEnabled === false 时整块跳过。
     if (this.config.aiEnabled) {
       try {
-        const aiResult = await this.ollama.classify(prompt, context);
+        const aiResult = await this.ai.classify(prompt, context);
         if (aiResult.confidence >= this.config.aiThreshold) {
           return {
             ...aiResult,
@@ -186,7 +195,13 @@ export class HybridClassifier {
             reason: "ai-classified",
           };
         }
-      } catch {
+      } catch (err) {
+        // 吞错落兜底照旧，但首个错误上报一次：远程网关的配置错误
+        // （400/401/404）每请求必现，静默吞掉会让 Layer 2 永久失效而无人察觉。
+        if (!this.aiErrorNotified) {
+          this.aiErrorNotified = true;
+          this.config.onAiError?.(err);
+        }
         // Fall through to fallback
       }
     }

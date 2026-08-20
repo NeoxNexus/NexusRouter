@@ -1462,3 +1462,192 @@ describe("resolveWeightedTier background-task hint", () => {
     ).toBe("REASONING");
   });
 });
+
+describe("aiClassifier: openai-compat wiring", () => {
+  const aiConfigPath = path.join(os.tmpdir(), "test-config-ai-classifier.yaml");
+  const aiFallbackConfigPath = path.join(os.tmpdir(), "test-config-ai-classifier-fallback.yaml");
+  let logDir: string;
+
+  const baseAiConfig = `
+router:
+  port: 8408
+  classifier: hybrid
+providers:
+  anthropic:
+    baseUrl: http://upstream.test
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: anthropic/cheap-model
+  MEDIUM:
+    primary: anthropic/mid-model
+  COMPLEX:
+    primary: anthropic/big-model
+  REASONING:
+    primary: anthropic/reasoning-model
+ollama:
+  enabled: false
+`;
+
+  beforeAll(async () => {
+    await fs.writeFile(
+      aiConfigPath,
+      baseAiConfig +
+        `
+aiClassifier:
+  provider: openai-compat
+  baseUrl: http://classifier.test/v1
+  apiKey: classifier-key
+  model: classifier-model
+`,
+    );
+    // provider 配了 openai-compat 但缺 baseUrl/model → 回退 ollama 路径，
+    // 而 ollama.enabled 为 false，Layer 2 整体跳过。
+    await fs.writeFile(
+      aiFallbackConfigPath,
+      baseAiConfig +
+        `
+aiClassifier:
+  provider: openai-compat
+`,
+    );
+  });
+
+  afterAll(async () => {
+    for (const p of [aiConfigPath, aiFallbackConfigPath]) {
+      try {
+        await fs.unlink(p);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  beforeEach(async () => {
+    logDir = await fs.mkdtemp(path.join(os.tmpdir(), "nexusrouter-ai-classifier-log-"));
+    process.env.NEXUSROUTER_LOG_DIR = logDir;
+    resetRetryOutcomeIndex();
+  });
+
+  afterEach(async () => {
+    delete process.env.NEXUSROUTER_LOG_DIR;
+    vi.unstubAllGlobals();
+    await fs.rm(logDir, { recursive: true, force: true });
+  });
+
+  async function readLogEntries(expected = 1): Promise<Record<string, unknown>[]> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const files = await fs.readdir(logDir);
+      const routingFile = files.find(
+        (f) => f.startsWith("routing-") && !f.startsWith("routing-outcome-"),
+      );
+      if (routingFile) {
+        const content = await fs.readFile(path.join(logDir, routingFile), "utf-8");
+        const entries = content
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l));
+        if (entries.length >= expected) return entries;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return [];
+  }
+
+  // fetch 双派发：classifier.test 是 Layer 2 分类调用（OpenAI chat 格式），
+  // 其余是上游转发。两类响应都要给 json()/text()，路径不同用的方法不同。
+  function mockClassifierAndUpstream(tier: string, confidence: number) {
+    const calls: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] =
+      [];
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async (url: string, init: { headers: Record<string, string>; body: string }) => {
+            calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+            const isClassifier = url.startsWith("http://classifier.test");
+            const payload = isClassifier
+              ? { choices: [{ message: { role: "assistant", content: JSON.stringify({ tier, confidence }) } }] }
+              : { id: "mock" };
+            return {
+              ok: true,
+              status: 200,
+              headers: { get: () => null },
+              json: () => Promise.resolve(payload),
+              text: () => Promise.resolve(JSON.stringify(payload)),
+            };
+          },
+        ),
+    );
+    return calls;
+  }
+
+  function injectNeutralRequest(server: Awaited<ReturnType<typeof createServer>>) {
+    // "process this data" 无关键词、无代码：Layer 0 不命中，Layer 1 置信
+    // 0.5 < 0.92，必走到 Layer 2。
+    return server.inject({
+      method: "POST",
+      url: "/anthropic/v1/messages",
+      headers: { "x-api-key": "sk-user" },
+      payload: {
+        model: "auto",
+        max_tokens: 100,
+        messages: [{ role: "user", content: "process this data" }],
+      },
+    });
+  }
+
+  it("routes via the OpenAI-compatible classifier when aiClassifier is configured", async () => {
+    const calls = mockClassifierAndUpstream("COMPLEX", 0.9);
+    const config = await loadConfig(aiConfigPath);
+    const server = await createServer(aiConfigPath, config);
+    try {
+      await injectNeutralRequest(server);
+
+      // 分类调用打到网关的 /chat/completions，带 Bearer 头与配置的模型名
+      const classifyCall = calls.find((c) => c.url.startsWith("http://classifier.test"));
+      expect(classifyCall).toBeDefined();
+      expect(classifyCall!.url).toBe("http://classifier.test/v1/chat/completions");
+      expect(classifyCall!.headers["Authorization"]).toBe("Bearer classifier-key");
+      expect(classifyCall!.body.model).toBe("classifier-model");
+
+      // 分类结果（COMPLEX 0.9 ≥ aiThreshold）被采纳，最终路由到 COMPLEX 档
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        layer: "ai",
+        reason: "ai-classified",
+        classifierTier: "COMPLEX",
+        finalTier: "COMPLEX",
+        finalModel: "anthropic/big-model",
+      });
+
+      // ollama.enabled 为 false 也不影响：Ollama 路径从未被访问
+      expect(calls.some((c) => c.url.includes("localhost:11434"))).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("falls back to the ollama path (disabled → Layer 3) when baseUrl/model are missing", async () => {
+    const calls = mockClassifierAndUpstream("COMPLEX", 0.9);
+    const config = await loadConfig(aiFallbackConfigPath);
+    const server = await createServer(aiFallbackConfigPath, config);
+    try {
+      await injectNeutralRequest(server);
+
+      // Layer 2 整体跳过：没有任何分类调用，只有上游转发
+      expect(calls.some((c) => c.url.startsWith("http://classifier.test"))).toBe(false);
+
+      const entries = await readLogEntries();
+      expect(entries[0]).toMatchObject({
+        layer: "fallback",
+        reason: "uncertain-upgrade",
+        finalModel: "anthropic/mid-model",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+});

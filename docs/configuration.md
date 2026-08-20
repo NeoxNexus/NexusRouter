@@ -12,6 +12,7 @@ NexusRouter 使用单一 YAML 配置文件（默认 `./config.yaml`），通过 
   - [tiers](#tiers)
   - [hints](#hints)
   - [ollama](#ollama)
+  - [aiClassifier](#aiclassifier)
 - [认证方式](#认证方式)
 - [常见问题](#常见问题)
 
@@ -167,6 +168,31 @@ TIER_NAME:
 | `timeout`         | number  | `800`                    | Ollama 调用超时（毫秒），到点即降级兜底 |
 
 > `enabled: false` 时分类器整块跳过 Ollama 层（Layer 2），不会向 `baseUrl` 发任何请求。`enabled: true` 而 Ollama 不可达时，每个低置信请求最多等 `timeout` 即降级兜底。
+
+### aiClassifier
+
+Layer 2 分类的另一种后端：OpenAI 兼容协议（`/chat/completions`），可对接 new-api 网关或 vLLM 私有部署，替代本地 Ollama。**配置了 `provider: openai-compat` 即视为启用，不看 `ollama.enabled`**（它只管 ollama 路径）；`baseUrl`/`model` 缺失则启动时告警并回退 ollama 路径。
+
+| 字段       | 类型   | 默认值     | 说明                                                         |
+| :--------- | :----- | :--------- | :----------------------------------------------------------- |
+| `provider` | string | `"ollama"` | `"ollama"`（本地）或 `"openai-compat"`（OpenAI 兼容网关）    |
+| `baseUrl`  | string | -          | 网关地址，**需含 `/v1`**；openai-compat 时必填               |
+| `apiKey`   | string | `""`       | 网关令牌，支持 `${ENV}` 展开；留空则不携带鉴权头（内网网关） |
+| `model`    | string | -          | 网关上的模型名（不带 `provider/` 前缀）；openai-compat 时必填 |
+| `timeout`  | number | `800`      | 分类调用超时（毫秒），到点即降级兜底                         |
+
+new-api 示例（用网关上的便宜模型做分类）：
+
+```yaml
+aiClassifier:
+  provider: openai-compat
+  baseUrl: https://new-api.example.com/v1
+  apiKey: ${NEW_API_KEY}
+  model: gpt-4o-mini
+  timeout: 800
+```
+
+> 模型省略 `confidence` 时按 0.8 采纳，默认阈值 0.75 下必过；如需更保守可在提示词或阈值上调整。避免使用 reasoning/思维链模型——分类请求 `max_tokens` 只有 50，会被 CoT 输出吃光。
 
 ---
 

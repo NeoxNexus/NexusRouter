@@ -32,6 +32,22 @@ export const OllamaConfigSchema = z.object({
   timeout: z.number().default(800),
 });
 
+/**
+ * Layer 2 大模型分类层的后端选择。与 router.classifier（"heuristic"/"hybrid"
+ * 分层策略）是两回事：这里选的是 hybrid 模式下 Layer 2 实际调用的模型服务。
+ * provider: "openai-compat" 时本段即视为启用（不看 ollama.enabled，它只管
+ * ollama 路径），baseUrl 需含 /v1（new-api 网关 / vLLM 私有部署）；
+ * baseUrl/model 缺失则启动时告警并回退 ollama 路径。
+ */
+export const AiClassifierConfigSchema = z.object({
+  provider: z.enum(["ollama", "openai-compat"]).default("ollama"),
+  baseUrl: z.string().optional(),
+  // 空串 = 不带 Authorization 头，兼容无鉴权的内网网关。
+  apiKey: z.string().default(""),
+  model: z.string().optional(),
+  timeout: z.number().default(800),
+});
+
 export const LayersRulesSchema = z.object({
   enabled: z.boolean().default(true),
 });
@@ -90,11 +106,13 @@ export const ConfigSchema = z.object({
     .default({}),
   hints: HintsConfigSchema.default({}),
   ollama: OllamaConfigSchema.default({}),
+  aiClassifier: AiClassifierConfigSchema.default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type TierConfig = z.infer<typeof TierConfigSchema>;
 export type OllamaConfig = z.infer<typeof OllamaConfigSchema>;
+export type AiClassifierConfig = z.infer<typeof AiClassifierConfigSchema>;
 export type RouterConfig = z.infer<typeof RouterConfigSchema>;
 export type HintsConfig = z.infer<typeof HintsConfigSchema>;
