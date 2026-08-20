@@ -61,6 +61,11 @@ export const RouterConfigSchema = z.object({
   classifier: z.enum(["heuristic", "hybrid"]).default("hybrid"),
   layers: LayersConfigSchema.default({}),
   timeout: z.number().default(1000),
+  /**
+   * 上下文 token 护栏：估算的总上下文 token（rawBody 字符数 / 4）超过此值时，
+   * 无论分类器给什么档，都至少抬到 COMPLEX —— 超长上下文让小模型处理必劣化。
+   */
+  maxTokensForceComplex: z.number().default(100_000),
 });
 
 /**

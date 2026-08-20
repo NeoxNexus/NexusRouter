@@ -9,6 +9,7 @@
  *   nexusrouter --version        # Show version
  *   nexusrouter --port 8402      # Custom port
  *   nexusrouter doctor [question] # Run diagnostics
+ *   nexusrouter eval <labeled.jsonl> # Evaluate routing quality against labels
  *
  * For production deployments, use with PM2:
  *   pm2 start "npx nexusrouter" --name nexusrouter
@@ -17,6 +18,7 @@
 import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
 import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
+import { evaluateFile, formatEvalReport } from "./eval.js";
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -32,6 +34,7 @@ NexusRouter v${VERSION} - Smart LLM Router (Direct API, No Payments)
 Usage:
   nexusrouter [options]
   nexusrouter doctor [question]
+  nexusrouter eval <labeled.jsonl>
 
 Options:
   --version, -v     Show version number
@@ -44,6 +47,9 @@ Options:
 
 Commands:
   doctor            AI-powered diagnostics
+  eval              Evaluate routing quality against a labeled routing log
+                    (JSONL lines annotated with expectedTier; sibling
+                    routing-outcome-*.jsonl files are joined automatically)
 
 Examples:
   # Start server
@@ -51,6 +57,9 @@ Examples:
 
   # Run diagnostics
   npx nexusrouter doctor "why is my request failing?"
+
+  # Evaluate routing accuracy against human labels
+  npx nexusrouter eval ~/.nexusrouter/logs/labeled.jsonl
 
 Environment Variables:
   OPENAI_API_KEY      OpenAI API key
@@ -67,6 +76,8 @@ function parseArgs(args: string[]): {
   help: boolean;
   doctor: boolean;
   doctorQuestion?: string;
+  eval: boolean;
+  evalFile?: string;
   port?: number;
   config?: string;
 } {
@@ -75,6 +86,8 @@ function parseArgs(args: string[]): {
     help: false,
     doctor: false,
     doctorQuestion: undefined as string | undefined,
+    eval: false,
+    evalFile: undefined as string | undefined,
     port: undefined as number | undefined,
     config: undefined as string | undefined,
   };
@@ -93,6 +106,11 @@ function parseArgs(args: string[]): {
           .slice(i + 1)
           .join(" ")
           .trim() || undefined;
+      break;
+    } else if (arg === "eval" || arg === "--eval") {
+      result.eval = true;
+      // The next arg is the labeled JSONL path (quote paths with spaces).
+      result.evalFile = args[i + 1];
       break;
     } else if (arg === "--port" && args[i + 1]) {
       result.port = parseInt(args[i + 1], 10);
@@ -123,6 +141,25 @@ async function main(): Promise<void> {
     // TODO: Implement doctor command without wallet
     console.log("Doctor command not yet implemented for NexusRouter");
     process.exit(0);
+  }
+
+  if (args.eval) {
+    if (!args.evalFile) {
+      console.error("[NexusRouter] Usage: nexusrouter eval <labeled.jsonl>");
+      process.exit(1);
+    }
+    try {
+      const report = await evaluateFile(args.evalFile);
+      console.log(formatEvalReport(report));
+      console.log("\nJSON summary:");
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(0);
+    } catch (error) {
+      console.error(
+        `[NexusRouter] eval failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exit(1);
+    }
   }
 
   // Start the server

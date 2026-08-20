@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readFile, rm, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { logRoutingDecision, type RoutingLogEntry } from "./logger.js";
+import {
+  logRoutingDecision,
+  logOutcome,
+  type RoutingLogEntry,
+  type OutcomeLogEntry,
+} from "./logger.js";
 
 describe("logRoutingDecision", () => {
   let logDir: string;
@@ -88,6 +93,51 @@ describe("logRoutingDecision", () => {
   it("never throws when the log directory is unwritable", async () => {
     await expect(
       logRoutingDecision(baseEntry, "/proc/nexusrouter-cannot-write-here"),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("logOutcome", () => {
+  let logDir: string;
+
+  beforeEach(async () => {
+    logDir = await mkdtemp(join(tmpdir(), "nexusrouter-outcome-log-"));
+  });
+
+  afterEach(async () => {
+    await rm(logDir, { recursive: true, force: true });
+  });
+
+  const baseOutcome: OutcomeLogEntry = {
+    timestamp: "2026-08-17T10:30:00.000Z",
+    outcome: "retried",
+    retryReason: "same-text",
+  };
+
+  it("writes routing-outcome-YYYY-MM-DD.jsonl named by the referenced entry's date", async () => {
+    await logOutcome(baseOutcome, logDir);
+
+    const content = await readFile(join(logDir, "routing-outcome-2026-08-17.jsonl"), "utf-8");
+    const lines = content.trim().split("\n");
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toEqual(baseOutcome);
+  });
+
+  it("appends subsequent outcomes instead of overwriting", async () => {
+    await logOutcome(baseOutcome, logDir);
+    await logOutcome({ ...baseOutcome, retryReason: "model-switch" }, logDir);
+
+    const content = await readFile(join(logDir, "routing-outcome-2026-08-17.jsonl"), "utf-8");
+    const lines = content.trim().split("\n");
+
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[1]).retryReason).toBe("model-switch");
+  });
+
+  it("never throws when the log directory is unwritable", async () => {
+    await expect(
+      logOutcome(baseOutcome, "/proc/nexusrouter-cannot-write-here"),
     ).resolves.toBeUndefined();
   });
 });

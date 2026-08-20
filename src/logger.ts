@@ -75,8 +75,20 @@ export type RoutingLogEntry = {
   classifierTier: string;
   /** Tier actually used, after hint fusion */
   finalTier: string;
+  /** True when the maxTokensForceComplex context guardrail raised the tier to COMPLEX. */
+  contextForcedComplex?: boolean;
   /** Model forwarded upstream, provider prefix included */
   finalModel: string;
+  /**
+   * Model that actually served the request (provider prefix included) — set
+   * only when a tier fallback served it; absent means finalModel served.
+   */
+  servedModel?: string;
+  /**
+   * Failed upstream attempts before the request was served (or gave up),
+   * including the primary failure that opened the fallback path. Absent = 0.
+   */
+  fallbackAttempts?: number;
   layer: "rule" | "heuristic" | "ai" | "fallback";
   reason: string;
   confidence: number;
@@ -115,6 +127,41 @@ export async function logRoutingDecision(
       promptPreview: entry.promptPreview.slice(0, PROMPT_PREVIEW_MAX),
     };
     await appendFile(file, JSON.stringify(truncated) + "\n");
+  } catch {
+    // Never break the request flow
+  }
+}
+
+/**
+ * A post-hoc signal attached to an already-logged routing entry.
+ *
+ * Routing JSONL is append-only, so the "user retried — the previous answer
+ * was likely bad" signal can't be patched onto the old row. It is appended
+ * here as a companion record instead, joined back by `timestamp` (the ISO
+ * timestamp of the routing entry it refers to). The file date also comes
+ * from that referenced entry so the outcome lands next to its subject.
+ */
+export type OutcomeLogEntry = {
+  /** Timestamp of the RoutingLogEntry this outcome refers to (join key). */
+  timestamp: string;
+  outcome: "retried";
+  retryReason: "same-text" | "model-switch";
+};
+
+/**
+ * Log an outcome companion record as a JSON line.
+ *
+ * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexusrouter/logs
+ */
+export async function logOutcome(
+  entry: OutcomeLogEntry,
+  dir: string = resolveLogDir(),
+): Promise<void> {
+  try {
+    await ensureDir(dir);
+    const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
+    const file = join(dir, `routing-outcome-${date}.jsonl`);
+    await appendFile(file, JSON.stringify(entry) + "\n");
   } catch {
     // Never break the request flow
   }

@@ -28,13 +28,13 @@ describe("HybridClassifier", () => {
     it("should return rule result for greetings", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify("Hello, how are you?", {
+      const result = await classifier.classify("hello", {
         messageCount: 1,
         hasSystemPrompt: false,
       });
 
       expect(result.tier).toBe("SIMPLE");
-      expect(["rule", "fallback"]).toContain(result.layer);
+      expect(result.layer).toBe("rule");
     });
 
     it("should return rule result for thanks", async () => {
@@ -141,21 +141,24 @@ describe("HybridClassifier", () => {
     it("should consider messageCount in heuristic classification", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
+      // 「你好」现在命中 Layer 0 中文问候规则，无法再到达启发式层；
+      // 改用无关键词的中性句来观察 messageCount 的影响。
       // 单轮简单消息
-      const singleResult = await classifier.classify("你好", {
+      const singleResult = await classifier.classify("帮我处理一下这个数据", {
         messageCount: 1,
         hasSystemPrompt: false,
       });
 
       // 多轮相同消息
-      const multiResult = await classifier.classify("你好", {
+      const multiResult = await classifier.classify("帮我处理一下这个数据", {
         messageCount: 20,
         hasSystemPrompt: false,
       });
 
-      // 多轮对话应该有不同的处理
-      expect(singleResult.tier).toBe("SIMPLE");
-      // multiResult 可能有不同的置信度或 tier
+      // 启发式层给出 SIMPLE，但低置信兜底会升一档 → MEDIUM
+      expect(singleResult.tier).toBe("MEDIUM");
+      // 多轮（long）使启发式层先升到 MEDIUM，兜底再升一档 → COMPLEX
+      expect(multiResult.tier).toBe("COMPLEX");
     });
 
     it("should handle reference to previous context", async () => {
@@ -419,9 +422,11 @@ describe("HybridClassifier", () => {
 
       // Asserting the layer matters: the previous version of this test passed
       // while Layer 0 short-circuited, so Layer 1 was never exercised.
+      // 两条结果都低置信、经 Layer 3 兜底各再升一档：Layer 1 的 SIMPLE/MEDIUM
+      // 最终表现为 MEDIUM/COMPLEX，requiresTools 的层间差仍保持一档。
       expect(acting.layer).not.toBe("rule");
-      expect(idle.tier).toBe("SIMPLE");
-      expect(acting.tier).toBe("MEDIUM");
+      expect(idle.tier).toBe("MEDIUM");
+      expect(acting.tier).toBe("COMPLEX");
     });
 
     it("does not downgrade REASONING when tools are present", async () => {
@@ -495,6 +500,154 @@ describe("HybridClassifier", () => {
     });
   });
 
+  describe("Chinese keyword detection (Layer 0)", () => {
+    // `\b` is meaningless for Chinese, so ZH keywords go through `includes()`
+    // on a parallel path; either path landing counts as a rule hit.
+    it("detects Chinese reasoning keywords via includes matching", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 裸词「证明」已移出词表（会误伤「工作证明」类文书请求），
+      // 用仍命中的具体词组「严格证明」验证 includes 通路。
+      const result = await classifier.classify("严格证明这个贪心算法的正确性", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("REASONING");
+      expect(result.reason).toBe("reasoning-keyword");
+      expect(result.layer).toBe("rule");
+    });
+
+    it("detects Chinese complex keywords via includes matching", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("分析一下这个模块的安全隐患", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("COMPLEX");
+      expect(result.reason).toBe("complex-keyword");
+      expect(result.layer).toBe("rule");
+    });
+
+    it("still matches English reasoning keywords in mixed-language prompts", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("请帮我 prove 这个引理", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("REASONING");
+      expect(result.reason).toBe("reasoning-keyword");
+    });
+
+    it("matches Chinese complex keywords in mixed-language prompts", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("review 这段代码的设计模式", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("COMPLEX");
+      expect(result.reason).toBe("complex-keyword");
+    });
+
+    it("does not treat mixed text as reasoning via English substrings", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // "improve" contains "prove"; no Chinese reasoning keyword present.
+      const result = await classifier.classify("improve 这段代码的可读性", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.reason).not.toBe("reasoning-keyword");
+      expect(result.tier).not.toBe("REASONING");
+    });
+
+    it("does not treat a bare 重构 request as a complex-keyword rule hit", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 裸词「重构」已移出词表：常规重构请求不再被 Layer 0 直接定 COMPLEX，
+      // 走后续层（启发式低置信 → Layer 3 兜底升档）。
+      const result = await classifier.classify("帮我重构这个函数", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.layer).not.toBe("rule");
+      expect(result.reason).not.toBe("complex-keyword");
+      expect(result.tier).not.toBe("COMPLEX");
+    });
+
+    it("does not treat 工作证明 (paperwork) as a reasoning keyword", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 「工作证明」的「证明」是文书语义；词表只收严格证明/数学证明等词组。
+      const result = await classifier.classify("开具工作证明所需材料", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.reason).not.toBe("reasoning-keyword");
+      expect(result.tier).not.toBe("REASONING");
+    });
+  });
+
+  describe("Chinese greeting/thanks (Layer 0)", () => {
+    // 与英文同策略：整句匹配才短路到 SIMPLE，寒暄+正文走完整分类。
+    it("routes 你好 to SIMPLE as a greeting", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("你好", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("SIMPLE");
+      expect(result.layer).toBe("rule");
+      expect(result.reason).toBe("greeting");
+    });
+
+    it("routes 谢谢 to SIMPLE as thanks", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("谢谢", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.tier).toBe("SIMPLE");
+      expect(result.layer).toBe("rule");
+      expect(result.reason).toBe("thanks");
+    });
+
+    it("does not short-circuit a greeting followed by real content", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 寒暄+正文不该短路到 SIMPLE——正则整句锚定，这句走完整分类。
+      const result = await classifier.classify("你好，帮我分析下这个架构", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.reason).not.toBe("greeting");
+      expect(result.layer).not.toBe("rule");
+    });
+  });
+
   describe("classification reason (observability)", () => {
     it("should report greeting for greeting patterns", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
@@ -554,7 +707,7 @@ describe("HybridClassifier", () => {
       expect(result.reason).toBe("complex-keyword");
     });
 
-    it("should report low-confidence-fallback when no layer reaches its threshold", async () => {
+    it("should report uncertain-upgrade when no layer reaches its threshold", async () => {
       mockFetch.mockResolvedValue({ ok: false } as Response);
 
       const classifier = new HybridClassifier(mockOllama, config);
@@ -566,7 +719,82 @@ describe("HybridClassifier", () => {
       });
 
       expect(result.layer).toBe("fallback");
-      expect(result.reason).toBe("low-confidence-fallback");
+      expect(result.reason).toBe("uncertain-upgrade");
+    });
+  });
+
+  describe("Layer 3: uncertain-upgrade fallback", () => {
+    // 拿不准时升档：该弱给强只是静默多花钱，该强给弱是质量可见崩。
+    beforeEach(() => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+    });
+
+    it("upgrades SIMPLE to MEDIUM on fallback", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify("process this data", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.layer).toBe("fallback");
+      expect(result.tier).toBe("MEDIUM");
+      expect(result.confidence).toBe(0.5);
+      expect(result.reason).toBe("uncertain-upgrade");
+    });
+
+    it("upgrades MEDIUM to COMPLEX on fallback", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 51 个无关键词中性词 → 启发式 MEDIUM (0.65)，低于阈值走兜底。
+      const prompt =
+        "The quarterly report shows steady growth across all regional markets " +
+        "with notable gains in customer retention and operational efficiency " +
+        "during the first half of the fiscal year according to preliminary " +
+        "internal estimates shared by department heads last week along with " +
+        "hiring plans and budget adjustments for the coming months ahead overall";
+      const result = await classifier.classify(prompt, {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.layer).toBe("fallback");
+      expect(result.tier).toBe("COMPLEX");
+      expect(result.reason).toBe("uncertain-upgrade");
+    });
+
+    it("upgrades COMPLEX to REASONING on fallback", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // 270 个无关键词中性词 → 启发式 COMPLEX (0.7)，低于阈值走兜底。
+      const prompt = Array(30).fill("the quick brown fox jumps over the lazy dog").join(" ");
+      const result = await classifier.classify(prompt, {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.layer).toBe("fallback");
+      expect(result.tier).toBe("REASONING");
+      expect(result.reason).toBe("uncertain-upgrade");
+    });
+
+    it("caps at REASONING instead of upgrading past it", async () => {
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      // "calculate" 只在启发式词表中（Layer 0 不收），给出 REASONING 0.85，
+      // 低于 0.92 阈值走兜底；已是 REASONING 则封顶不变。
+      const result = await classifier.classify("calculate the total energy consumption", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: false,
+      });
+
+      expect(result.layer).toBe("fallback");
+      expect(result.tier).toBe("REASONING");
+      expect(result.reason).toBe("uncertain-upgrade");
     });
   });
 
@@ -574,15 +802,17 @@ describe("HybridClassifier", () => {
     it("should upgrade tier for long conversation with simple message", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify("谢谢", {
+      // 「谢谢」现在命中 Layer 0 中文感谢规则；改用无关键词的「好的」，
+      // 让请求真正走到启发式层来验证长对话升档。
+      const result = await classifier.classify("好的", {
         messageCount: 10,
         hasSystemPrompt: false,
         hasTools: false,
         conversationLength: "long",
       });
 
-      // 从 SIMPLE 提升到 MEDIUM
-      expect(result.tier).toBe("MEDIUM");
+      // 长对话在启发式层从 SIMPLE 提升到 MEDIUM；低置信兜底再升一档 → COMPLEX
+      expect(result.tier).toBe("COMPLEX");
     });
 
     it("should maintain high confidence for long conversation", async () => {
@@ -606,17 +836,20 @@ describe("HybridClassifier", () => {
       expect(long.confidence).toBeGreaterThanOrEqual(short.confidence);
     });
 
-    it("should not upgrade for short conversation", async () => {
+    it("should not upgrade at Layer 1 for short conversation", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify("你好", {
+      // 「你好」现在命中 Layer 0 中文问候规则；改用无关键词的中性句。
+      const result = await classifier.classify("帮我处理一下这个数据", {
         messageCount: 1,
         hasSystemPrompt: false,
         hasTools: false,
         conversationLength: "short",
       });
 
-      expect(result.tier).toBe("SIMPLE");
+      // 短对话在启发式层保持 SIMPLE（无 conversationLength 提升）；
+      // 最终呈现的 MEDIUM 完全来自低置信兜底的升档。
+      expect(result.tier).toBe("MEDIUM");
     });
   });
 

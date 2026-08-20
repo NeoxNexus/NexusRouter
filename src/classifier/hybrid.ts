@@ -25,11 +25,17 @@ export type ClassificationReason =
   | "complex-keyword"
   | "heuristic-score"
   | "ai-classified"
-  | "low-confidence-fallback";
+  | "low-confidence-fallback"
+  | "uncertain-upgrade";
 
 const GREETING_PATTERNS =
   /^((hi|hello|hey|howdy|good (morning|afternoon|evening)|what's up|yo|greetings)[\s,!]*)+$/i;
 const THANK_PATTERNS = /^(thanks?|thank you|thx|ty|much appreciated|appreciate it)[\s!*]*$/i;
+
+// 中文寒暄/感谢，与英文同策略：整句锚定（^...$）。「你好，帮我改个 bug」
+// 这类寒暄+正文的句子不该被短路到 SIMPLE——它要走完整分类。
+const GREETING_PATTERNS_ZH = /^(你好|您好|嗨|哈喽|早上好|上午好|下午好|晚上好)[\s~!！。,.，]*$/;
+const THANK_PATTERNS_ZH = /^(谢谢|感谢|多谢|辛苦了|谢了)[\s~!！。,.，]*$/;
 
 // 引用上文模式
 const REFERENCE_PATTERNS = [
@@ -43,7 +49,8 @@ const REFERENCE_PATTERNS = [
  *
  * 曾用 `includes()`，于是 "improve" 内含的 "prove" 会命中 —— Claude Code
  * 每轮都注入 skills 清单（必含 "improve"），全部流量因此钉在 REASONING。
- * `\b` 只对 ASCII 词边界有效，中文关键词需另立通路，故此表保持纯英文。
+ * `\b` 只对 ASCII 词边界有效，对中文无效，故关键词走双通路：英文用整词
+ * 正则（本表），中文用 `includes()`（见下方 *_ZH 表），任一路径命中即算。
  */
 const REASONING_KEYWORDS = [
   "prove",
@@ -66,10 +73,47 @@ const REASONING_KEYWORDS = [
 
 const REASONING_PATTERN = new RegExp(`\\b(?:${REASONING_KEYWORDS.join("|")})\\b`, "i");
 
+/**
+ * 中文推理关键词。中文没有词边界，`\b` 无效，故用 `includes()` 匹配；
+ * 词表宁精勿滥，只收语义具体、日常指令中误伤率低的词。
+ * 裸词「证明」已移除——「工作证明/证明材料」这类文书请求会被误伤；
+ * 只保留指向严格推理的词组（严格证明/数学证明/归纳证明/证明题）。
+ */
+const REASONING_KEYWORDS_ZH = [
+  "推导",
+  "论证",
+  "定理",
+  "数学归纳",
+  "归纳证明",
+  "复杂度分析",
+  "严格证明",
+  "数学证明",
+  "证明题",
+];
+
 // 复杂代码分析关键词
 const COMPLEX_KEYWORDS = ["analyze", "security", "implications", "architecture", "design patterns"];
 
 const COMPLEX_PATTERN = new RegExp(`\\b(?:${COMPLEX_KEYWORDS.join("|")})\\b`, "i");
+
+/**
+ * 中文复杂分析关键词，同样用 `includes()` 匹配。
+ * 避免“分析”这类超高频词误伤，只收更具体的词组。
+ * 裸词「重构」已移除——「帮我重构这个函数」是常规编码请求而非方案级分析；
+ * 只保留「重构方案/架构重构」这类明确指向架构层面的词组。
+ */
+const COMPLEX_KEYWORDS_ZH = [
+  "深入分析",
+  "架构设计",
+  "系统架构",
+  "安全隐患",
+  "安全审计",
+  "设计模式",
+  "重构方案",
+  "架构重构",
+  "代码评审",
+  "性能瓶颈",
+];
 
 // Layer 1 用的推理词表比 Layer 0 更宽（含 calculate / solve equation），
 // 因为启发式层只加权、不直接定档，误判代价更低。
@@ -140,30 +184,37 @@ export class HybridClassifier {
       // Fall through to fallback
     }
 
-    // Layer 3: Fallback (heuristic with lower threshold)
+    // Layer 3: Fallback —— 拿不准时升一档。代价是非对称的：该弱给强只是
+    // 静默多花钱，该强给弱则是质量可见崩；已是 REASONING 则封顶不变。
+    // 空文本伪兜底（server.ts 在无文本可分类时手工构造的 fallback 条目）
+    // 不走这里，保持 SIMPLE / "low-confidence-fallback" 以区分两类兜底。
     return {
       ...heuristicResult,
+      tier: upgradeTier(heuristicResult.tier),
       confidence: 0.5,
       layer: "fallback",
-      reason: "low-confidence-fallback",
+      reason: "uncertain-upgrade",
     };
   }
 
   private checkRules(prompt: string): RuleResult {
     const normalized = prompt.trim().toLowerCase();
 
-    // 问候语检测
-    if (GREETING_PATTERNS.test(normalized)) {
+    // 问候语检测（中英文，均为整句匹配）
+    if (GREETING_PATTERNS.test(normalized) || GREETING_PATTERNS_ZH.test(normalized)) {
       return { hit: true, tier: "SIMPLE", reason: "greeting" };
     }
 
-    // 感谢语检测
-    if (THANK_PATTERNS.test(normalized)) {
+    // 感谢语检测（中英文，均为整句匹配）
+    if (THANK_PATTERNS.test(normalized) || THANK_PATTERNS_ZH.test(normalized)) {
       return { hit: true, tier: "SIMPLE", reason: "thanks" };
     }
 
-    // 推理关键词检测 (优先级最高)
-    if (REASONING_PATTERN.test(normalized)) {
+    // 推理关键词检测 (优先级最高，中英文双通路任一命中即算)
+    if (
+      REASONING_PATTERN.test(normalized) ||
+      REASONING_KEYWORDS_ZH.some((k) => normalized.includes(k))
+    ) {
       return { hit: true, tier: "REASONING", reason: "reasoning-keyword" };
     }
 
@@ -172,8 +223,11 @@ export class HybridClassifier {
       return { hit: true, tier: upgradeTier("SIMPLE"), reason: "reference-pattern" };
     }
 
-    // 复杂代码分析关键词
-    if (COMPLEX_PATTERN.test(normalized)) {
+    // 复杂代码分析关键词 (中英文双通路任一命中即算)
+    if (
+      COMPLEX_PATTERN.test(normalized) ||
+      COMPLEX_KEYWORDS_ZH.some((k) => normalized.includes(k))
+    ) {
       return { hit: true, tier: "COMPLEX", reason: "complex-keyword" };
     }
 
