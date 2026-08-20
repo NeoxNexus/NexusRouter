@@ -8,15 +8,18 @@
  * The template is embedded as a string (not read from disk) because
  * `config.yaml` is not shipped in the npm package and tsup bundles the
  * CLI into a flat `dist/`, so there is no reliable file to copy at runtime.
- * A test (default-config.test.ts) guards this constant against drift from
- * the repo-root `config.yaml`.
+ * `default-config.test.ts` guards it by parsing it through the real
+ * `ConfigSchema` and checking top-level section parity with the repo config —
+ * deliberately *not* byte-identity, because the repo-root `config.yaml` is a
+ * live deployment config (specific gateway, credential passthrough on) that
+ * must never become a new user's default.
  */
 
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
-/** Verbatim contents of the repo-root `config.yaml` (kept in sync by test). */
+/** Generic first-launch template. Intentionally not the repo-root `config.yaml`. */
 export const DEFAULT_CONFIG_YAML = `router:
   port: 8402
   classifier: hybrid

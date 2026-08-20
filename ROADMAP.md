@@ -289,7 +289,8 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **5.6** 接入 `Logger` / `Stats` / `Report` —— **Savings Ledger 省钱记账体系**（方案：[`docs/plans/2026-08-19-savings-ledger-design.md`](docs/plans/2026-08-19-savings-ledger-design.md)）
   - 🔴 **硬前置**：Phase 3.3 未完成前不可施工。四档模型（`claude-opus-*`）未注册进 `models.ts`，成本计算 100% 依赖该价格表，此时接线记出来的账全是 `0` / `null`
   - 现状审计：`logUsage()` 零调用点、`stats.ts`/`report.ts` 无 CLI 入口、上游 `usage` 从不解析、美元数字基于 `maxTokens` 虚构、`savings` 字段单位一名两义（共 10 项缺陷，详见方案第 2 节）
-  - 🔴 **补充缺陷 11**（2026-08-20 核实）：`stats.ts:15` 硬编码 `LOG_DIR = ~/.nexusrouter/logs`，**忽略 `NEXUSROUTER_LOG_DIR`**，而 `logger.ts:38` 认这个变量 → 设了环境变量（容器/自定义日志目录）后写侧写 A、读侧读 B，报表与大屏永远 0 且无任何报错。建议抽 `paths.ts` 统一解析（顺带处理配置目录 `~/.nexus-router/` 与日志目录 `~/.nexusrouter/` 的命名不一致）
+  - ✅ **缺陷 11 已修**（2026-08-20，Step D0）：抽出 `src/paths.ts` 作为日志路径唯一真相源（`resolveLogDir()` **每次调用**重新解析 `NEXUSROUTER_LOG_DIR`，因为 CLI / 容器入口可能在模块 import 之后才设值），`logger.ts` 与 `stats.ts` 双侧改为共用；`getLogFiles()` 由模块常量改为参数传入。新增 `src/paths.test.ts`（8 例）与 `src/stats.test.ts`（5 例，含「读侧认环境变量」「日志目录不存在返回 0 而非抛错」「忽略 `routing-*.jsonl` 不交叉污染」）
+  - 📌 命名不一致保留现状（配置 `~/.nexus-router/` vs 日志 `~/.nexusrouter/`），已在 `paths.ts` 注释显式标注；改名属破坏性变更，留待单独决策
   - [ ] **5.6.1** `src/pricing/` 分档定价（in / out / cacheRead / cacheWrite5m / cacheWrite1h），未知模型返回 `null` 而非 `0`
   - [ ] **5.6.2** `src/accounting/` `BaselineResolver` 策略：`requested`（默认，用客户端实际请求的模型）/ `reference` / `off`
   - [ ] **5.6.3** `src/adapter/` usage 捕获：非流式复用既有 `JSON.parse`（+0.0001ms）；流式用 **4KB 预分配环形尾窗**，写法锁定 `Uint8Array` + `TypedArray.set`（实测 43-57 ns/chunk；改用 `Buffer.concat` 累积会慢 **1100×**，评审红线）
@@ -342,7 +343,7 @@ claude   # 15维分类器自动路由，无需其他配置
   - 边界：半行残片拼接、跨日切换保留昨日聚合、文件被截断/删除（`size < offset`）时 offset 归零、v1+v2 schema 混读
   - 口径：`upstream` / `estimated` 分离计数不相加；`baselineCostUsd === null` 不当 0 聚合
 - [ ] **6.6** `nexusrouter dash` 控制台实时大屏（方案：[`docs/plans/2026-08-20-live-dashboard-design.md`](docs/plans/2026-08-20-live-dashboard-design.md)）
-  - 🔴 **硬前置**：① Phase 5.6 Savings Ledger 落地（否则大屏实时放大缺陷 4 的虚构美元）；② 修缺陷 11（见 5.6 现状审计补充）
+  - 🔴 **硬前置**：① Phase 5.6 Savings Ledger 落地（否则大屏实时放大缺陷 4 的虚构美元）；② ~~修缺陷 11~~ ✅ 已于 2026-08-20 修完（`src/paths.ts`，见 5.6）
   - **独立进程**，🔴 **绝不与 router 同进程渲染** —— 1Hz 全帧重绘放进流量咽喉的事件循环 = 给代理延迟加周期性抖动；对 router 的开销必须为 0
   - **零新依赖手写 ANSI**（否决 `ink`（拖进 React，+2MB 量级）与 `blessed`（久未维护）；3 个运行时依赖是产品资产）
   - 终端接管四要点：alt screen 进出且 `SIGINT`/`SIGTERM`/`exit`/`uncaughtException` **必须恢复**（`\x1b[?1049l` + `\x1b[?25h`）；**非 TTY 退回一次性快照**；按 `stdout.columns` 自适应 + `SIGWINCH` 重排；逐行 `\x1b[K` 清行防闪烁

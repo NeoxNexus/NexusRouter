@@ -8,11 +8,9 @@
 import { readdir } from "node:fs/promises";
 import { readTextFile } from "./fs-read.js";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import type { UsageEntry } from "./logger.js";
+import { resolveLogDir } from "./paths.js";
 import { VERSION } from "./version.js";
-
-const LOG_DIR = join(homedir(), ".nexusrouter", "logs");
 
 export type DailyStats = {
   date: string;
@@ -73,10 +71,14 @@ async function parseLogFile(filePath: string): Promise<UsageEntry[]> {
 
 /**
  * Get list of available log files sorted by date (newest first).
+ *
+ * The directory is resolved per call (defect 11): freezing it in a module const
+ * made the read side ignore `NEXUSROUTER_LOG_DIR` while the writer honored it,
+ * so reports silently showed zeros.
  */
-async function getLogFiles(): Promise<string[]> {
+async function getLogFiles(dir: string): Promise<string[]> {
   try {
-    const files = await readdir(LOG_DIR);
+    const files = await readdir(dir);
     return files
       .filter((f) => f.startsWith("usage-") && f.endsWith(".jsonl"))
       .sort()
@@ -127,7 +129,8 @@ function aggregateDay(date: string, entries: UsageEntry[]): DailyStats {
  * Get aggregated statistics for the last N days.
  */
 export async function getStats(days: number = 7): Promise<AggregatedStats> {
-  const logFiles = await getLogFiles();
+  const logDir = resolveLogDir();
+  const logFiles = await getLogFiles(logDir);
   const filesToRead = logFiles.slice(0, days);
 
   const dailyBreakdown: DailyStats[] = [];
@@ -140,7 +143,7 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
 
   for (const file of filesToRead) {
     const date = file.replace("usage-", "").replace(".jsonl", "");
-    const filePath = join(LOG_DIR, file);
+    const filePath = join(logDir, file);
     const entries = await parseLogFile(filePath);
 
     if (entries.length === 0) continue;
