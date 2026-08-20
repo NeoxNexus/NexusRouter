@@ -32,22 +32,14 @@ function resolveEnvVars(obj: unknown): unknown {
     const standard = obj.match(/^\$\{([^}]+)\}$/);
     if (standard) {
       const envVar = standard[1];
-      const value = process.env[envVar];
-      if (value === undefined) {
-        throw new Error(`Environment variable ${envVar} is not set`);
-      }
-      return value;
+      return process.env[envVar] ?? "";
     }
 
     // 3. 简单格式 $VAR
     const simple = obj.match(/^\$(\w+)$/);
     if (simple) {
       const envVar = simple[1];
-      const value = process.env[envVar];
-      if (value === undefined) {
-        throw new Error(`Environment variable ${envVar} is not set`);
-      }
-      return value;
+      return process.env[envVar] ?? "";
     }
 
     return obj;
