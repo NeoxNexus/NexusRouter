@@ -353,14 +353,14 @@ claude   # 15维分类器自动路由，无需其他配置
 ## 🔲 Phase 6 — 可观测性
 
 > **预计时长**: ~7 天
-> **关联文档**：`docs/plans/2026-08-20-live-dashboard-design.md`（6.5/6.6 控制台实时大屏设计）
+> **关联文档**：`docs/plans/2026-08-20-live-dashboard-design.md`（6.5/6.6 Web 实时大屏设计）
 
 ### 目标
 
 - 结构化路由决策日志（Tier / Layer / Confidence / AgentProfile / 成本估算）
 - Prometheus `/metrics` 端点
 - Dashboard 所需的数据基线与调试端点
-- **控制台实时大屏**：终端内实时查看 tier 分布、真实成本与省下来的钱
+- **Web 实时大屏**：浏览器访问 `/dashboard`，实时查看 tier 分布、真实成本与省下来的钱
 
 ### 关键任务
 
@@ -374,7 +374,7 @@ claude   # 15维分类器自动路由，无需其他配置
   - `src/dashboard/aggregator.ts`：纯滚动窗口聚合，60s 窗口 req/s、p50/p95 上游延迟；`upstream` / `estimated` / `partial` 分离计数不相加；`baselineCostUsd === null` 不当 0 聚合；7 例测试覆盖
 - [x] **6.6** `/dashboard` HTML 实时大屏（SSE）—— ✅ **2026-08-20 完成**
   - `src/dashboard/web.ts`：router 进程内暴露 `/dashboard` 自包含 HTML 页面 + `/dashboard/events` SSE 端点；复用 `tailer.ts` + `aggregator.ts`；无客户端时停止所有循环，对 router 事件循环影响趋近于 0
-  - 配置开关 `router.dashboard`，默认 `false`（opt-in）；router 默认绑回环双栈，不主动暴露到局域网
+  - 配置开关 `router.dashboard`，默认 `true`（开箱即用）；router 默认绑回环双栈，不主动暴露到局域网
   - 前端纯原生 JS + 内嵌 CSS，零前端框架依赖；1s SSE 推送 + `fs.watch` 文件变化即时刷新
   - `src/cli.ts` 移除 `nexusrouter dash` 终端子命令；TUI 相关 `lifecycle.ts` / `render.ts` 及测试已删除
   - `src/dashboard/web.test.ts`：3 例测试覆盖关闭 404、HTML 返回、SSE 首帧数据

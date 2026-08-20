@@ -29,8 +29,9 @@ export const DEFAULT_CONFIG_YAML = `router:
   hosts: ["127.0.0.1", "::1"]
   # 上游请求超时（毫秒）。schema 默认 1000ms 对真实 LLM 调用必超时，生产必须显式设置
   timeout: 300000
-  # 是否开启内置 Web Dashboard（/dashboard）。默认 false，opt-in。
-  dashboard: false
+  # 是否开启内置 Web Dashboard（/dashboard）。默认 true，开箱即用；
+  # 需要关闭时显式设为 false。
+  dashboard: true
   layers:
     rules:
       enabled: true

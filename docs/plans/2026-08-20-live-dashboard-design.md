@@ -249,6 +249,7 @@ flowchart LR
 |:--|:--|
 | 2026-08-20 | 初版：独立进程 + 增量 tail + 零依赖 ANSI 渲染 + 纯函数 `renderFrame` 可测化；核实并新增**缺陷 11**（`stats.ts` 忽略 `NEXUSROUTER_LOG_DIR`）；否决 ink/blessed、Web UI、同进程渲染；标注 `/health` 无鉴权的暴露风险 |
 | 2026-08-20 | 按产品方向调整：移除 TUI，改为 router 内 `/dashboard` + `/dashboard/events` SSE 的 Web 大屏；`router.dashboard` 默认 `false`（opt-in）；复用 `tailer.ts` / `aggregator.ts` 数据层 |
+| 2026-08-20 | 默认开启：`router.dashboard` 改为默认 `true`；页面改为中文指标标签、科幻动效风格，并将「省了多少钱」作为首屏最大视觉焦点 |
 
 
 

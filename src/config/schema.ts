@@ -61,8 +61,8 @@ export const RouterConfigSchema = z.object({
   classifier: z.enum(["heuristic", "hybrid"]).default("hybrid"),
   layers: LayersConfigSchema.default({}),
   timeout: z.number().default(1000),
-  /** Enable the built-in web dashboard at /dashboard (default false for security). */
-  dashboard: z.boolean().default(false),
+  /** Enable the built-in web dashboard at /dashboard (default true). */
+  dashboard: z.boolean().default(true),
 });
 
 /**

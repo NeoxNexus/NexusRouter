@@ -14,7 +14,7 @@ router:
       confidenceThreshold: 0.92
     ai:
       fallbackConfidence: 0.75
-
+  dashboard: true
 providers:
   # gorouter.app（new-api 网关）说 Anthropic 协议，四档模型全部走这里。
   # passthroughApiKey: CC-Switch 传来的 sk 原样转发给 gorouter，按个人令牌计费。
