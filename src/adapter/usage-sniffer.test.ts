@@ -35,6 +35,26 @@ describe("TailWindow", () => {
     expect(w.text()).toBe("efghijkl");
   });
 
+  it("keeps UTF-8 multi-byte characters valid across the wrap boundary", () => {
+    const w = new TailWindow(32);
+    // 20 Chinese characters = 60 bytes. The 32-byte window must align to a
+    // character boundary so the trailing ASCII usage line remains readable.
+    w.push(bytes("中".repeat(20)));
+    w.push(bytes('event: message_delta\ndata: {"usage":{"output_tokens":77}}\n\n'));
+    const text = w.text();
+    expect(text).toContain('output_tokens":77');
+    expect(text).not.toContain("�");
+  });
+
+  it("wraps multi-byte chunks without mojibake", () => {
+    const w = new TailWindow(9); // fits 3 Chinese characters exactly
+    w.push(bytes("中"));
+    w.push(bytes("文"));
+    w.push(bytes("测"));
+    w.push(bytes("试")); // pushes "中" out
+    expect(w.text()).toBe("文测试");
+  });
+
   it("handles a chunk larger than the window", () => {
     const w = new TailWindow(8);
     w.push(bytes("0123456789abcdef"));

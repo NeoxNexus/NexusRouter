@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseArgs } from "./cli.js";
+import { describe, it, expect, vi } from "vitest";
+import { parseArgs, printHelp } from "./cli.js";
 
 describe("parseArgs", () => {
   it("defaults to starting the server", () => {
@@ -47,5 +47,19 @@ describe("parseArgs", () => {
     const args = parseArgs(["doctor", "why", "is", "this", "failing"]);
     expect(args.doctor).toBe(true);
     expect(args.doctorQuestion).toBe("why is this failing");
+  });
+});
+
+describe("printHelp", () => {
+  it("mentions the alt screen and how to exit", () => {
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+    printHelp();
+    const output = logs.join("\n");
+    expect(output).toContain("alt screen");
+    expect(output).toContain("Ctrl+C to exit");
+    vi.restoreAllMocks();
   });
 });

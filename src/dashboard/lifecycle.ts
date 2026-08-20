@@ -23,6 +23,18 @@ export type DashboardOptions = {
 };
 
 const MIN_WIDTH = 40;
+const MAX_HEALTH_BACKOFF_MS = 30_000;
+
+/** Exported for tests. Returns the next /health poll interval. */
+export function nextHealthBackoff(
+  currentMs: number,
+  baseMs: number,
+  success: boolean,
+  maxMs: number = MAX_HEALTH_BACKOFF_MS,
+): number {
+  if (success) return baseMs;
+  return Math.min(currentMs * 2, maxMs);
+}
 
 export type DashboardState = {
   tailer: TailerState;
@@ -174,6 +186,7 @@ export async function runDashboard(options: DashboardOptions = {}): Promise<void
   }
 
   let lastHealth = 0;
+  let healthBackoffMs = healthMs;
 
   const refresh = async () => {
     if (!running) return;
@@ -186,11 +199,16 @@ export async function runDashboard(options: DashboardOptions = {}): Promise<void
         if (state.recent.length > 200) state.recent = state.recent.slice(-200);
       }
 
-      if (now - lastHealth >= healthMs) {
+      if (now - lastHealth >= healthBackoffMs) {
         const health = await pollHealth(port);
         lastHealth = now;
-        if (health) state.router = { ...state.router, ...health };
-        else state.router.online = false;
+        if (health) {
+          state.router = { ...state.router, ...health };
+          healthBackoffMs = nextHealthBackoff(healthBackoffMs, healthMs, true);
+        } else {
+          state.router.online = false;
+          healthBackoffMs = nextHealthBackoff(healthBackoffMs, healthMs, false);
+        }
       }
 
       const input = buildRenderInput(state, width, height);

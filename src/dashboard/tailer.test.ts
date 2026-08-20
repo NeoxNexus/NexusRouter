@@ -116,6 +116,8 @@ describe("tailer", () => {
     const all = await tailAll(dir);
     expect(all).toHaveLength(2);
     expect(all[0].model).toBe("v1-model");
+    expect(all[0].usage).toBeUndefined();
     expect(all[1].model).toBe("anthropic/claude-sonnet-4.6");
+    expect(all[1].usage).toEqual({ inputUncached: 1000, output: 200, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 });
   });
 });

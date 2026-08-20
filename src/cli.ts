@@ -29,7 +29,7 @@ function defaultConfigHint(): string {
     : "~/.nexus-router/config.yaml";
 }
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`
 NexusRouter v${VERSION} - Smart LLM Router (Direct API, No Payments)
 
@@ -69,7 +69,7 @@ Examples:
   # Detailed JSON report for the last 7 days
   npx nexusrouter report --json
 
-  # Real-time dashboard
+  # Real-time dashboard (alt screen, Ctrl+C to exit)
   npx nexusrouter dash
 
 Environment Variables:

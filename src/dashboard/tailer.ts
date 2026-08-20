@@ -13,6 +13,7 @@
 import { opendir, stat, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { UsageEntry, UsageEntryV2 } from "../logger.js";
+import type { TokenUsage } from "../pricing/price-book.js";
 
 export type ParsedUsageEntry = {
   timestamp: string;
@@ -22,6 +23,7 @@ export type ParsedUsageEntry = {
   baselineCost: number | null;
   savings: number | null;
   latencyMs: number;
+  usage?: TokenUsage;
   usageSource?: "upstream" | "estimated" | "partial";
   truncated?: boolean;
 };
@@ -55,6 +57,7 @@ function parseLine(line: string): ParsedUsageEntry | null {
         baselineCost: v2.baselineCostUsd ?? null,
         savings: v2.savedUsd ?? null,
         latencyMs: v2.latencyMs || 0,
+        usage: v2.usage,
         usageSource: v2.usageSource,
         truncated: v2.truncated,
       };

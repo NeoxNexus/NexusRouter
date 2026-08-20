@@ -116,4 +116,29 @@ describe("formatRecentEntry", () => {
     });
     expect(e.cost).toBe("—");
   });
+
+  it("shows em-dash for tokens/cache when usage is missing (v1 entries)", () => {
+    const e = formatRecentEntry({
+      timestamp: "2026-08-20T10:00:00.000Z",
+      tier: "SIMPLE",
+      model: "legacy-v1",
+      cost: 0.001,
+      latencyMs: 100,
+    });
+    expect(e.tokens).toBe("—");
+    expect(e.cache).toBe("—");
+  });
+
+  it("shows real token/cache numbers when usage is present (v2 entries)", () => {
+    const e = formatRecentEntry({
+      timestamp: "2026-08-20T10:00:00.000Z",
+      tier: "COMPLEX",
+      model: "claude-sonnet",
+      usage: { inputUncached: 800, output: 150, cacheRead: 50 },
+      cost: 0.012,
+      latencyMs: 500,
+    });
+    expect(e.tokens).toBe("1,000/150");
+    expect(e.cache).toBe("50 r");
+  });
 });

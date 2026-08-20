@@ -234,9 +234,11 @@ export function formatRecentEntry(entry: {
 }): RecentEntry {
   const date = new Date(entry.timestamp);
   const time = date.toTimeString().slice(0, 8);
-  const usage = entry.usage || { inputUncached: 0, output: 0, cacheRead: 0 };
-  const tokens = `${pad(usage.inputUncached + usage.cacheRead + usage.output)}/${pad(usage.output)}`;
-  const cache = `${pad(usage.cacheRead)} r`;
+  const usage = entry.usage;
+  const tokens = usage
+    ? `${pad(usage.inputUncached + usage.cacheRead + usage.output)}/${pad(usage.output)}`
+    : "—";
+  const cache = usage ? `${pad(usage.cacheRead)} r` : "—";
   const cost = entry.cost === null ? "—" : `$${fmt(entry.cost)}`;
   const latency = `${pad(entry.latencyMs)} ms`;
   return { time, tier: entry.tier, model: entry.model, tokens, cache, cost, latency };

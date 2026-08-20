@@ -49,10 +49,17 @@ export class TailWindow {
     if (chunk.length === 0) return;
 
     if (chunk.length >= this.buf.length) {
-      // Chunk is larger than the window: keep only the trailing bytes.
-      this.buf.set(chunk.slice(chunk.length - this.buf.length));
+      // Chunk is larger than the window: keep only the trailing bytes. Align to
+      // a UTF-8 character boundary so text() does not start with a continuation
+      // byte and produce replacement characters.
+      let start = chunk.length - this.buf.length;
+      while (start < chunk.length && (chunk[start] & 0xc0) === 0x80) {
+        start++;
+      }
+      const kept = chunk.slice(start);
+      this.buf.set(kept);
       this.pos = 0;
-      this.size = this.buf.length;
+      this.size = kept.length;
       return;
     }
 

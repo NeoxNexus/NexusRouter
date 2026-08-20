@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runDashboard, runSnapshot } from "./lifecycle.js";
+import { runDashboard, runSnapshot, nextHealthBackoff } from "./lifecycle.js";
 import type { UsageEntryV2 } from "../logger.js";
 
 const originalLogDir = process.env.NEXUSROUTER_LOG_DIR;
@@ -121,5 +121,18 @@ describe("runDashboard", () => {
     process.stdout.emit("resize");
     // Function returned, so the resize handler executed without throwing.
     expect(true).toBe(true);
+  });
+});
+
+describe("nextHealthBackoff", () => {
+  it("resets to the base interval on success", () => {
+    expect(nextHealthBackoff(16_000, 2_000, true)).toBe(2_000);
+  });
+
+  it("doubles on failure up to the configured maximum", () => {
+    expect(nextHealthBackoff(2_000, 2_000, false)).toBe(4_000);
+    expect(nextHealthBackoff(4_000, 2_000, false)).toBe(8_000);
+    expect(nextHealthBackoff(16_000, 2_000, false)).toBe(30_000);
+    expect(nextHealthBackoff(30_000, 2_000, false)).toBe(30_000);
   });
 });
