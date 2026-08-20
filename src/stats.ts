@@ -34,6 +34,7 @@ export type DailyStats = {
   avgLatencyMs: number;
   upstreamRequests: number;
   estimatedRequests: number;
+  truncatedRequests: number;
   byTier: Record<string, { count: number; cost: number }>;
   byModel: Record<string, { count: number; cost: number }>;
 };
@@ -53,6 +54,7 @@ export type AggregatedStats = {
   entriesWithBaseline: number;
   upstreamRequests: number;
   estimatedRequests: number;
+  truncatedRequests: number;
 };
 
 /**
@@ -134,6 +136,7 @@ function aggregateDay(date: string, entries: ParsedUsageEntry[]): DailyStats {
   let totalLatency = 0;
   let upstreamRequests = 0;
   let estimatedRequests = 0;
+  let truncatedRequests = 0;
 
   for (const entry of entries) {
     const cost = coalesce(entry.cost);
@@ -150,6 +153,7 @@ function aggregateDay(date: string, entries: ParsedUsageEntry[]): DailyStats {
 
     if (entry.usageSource === "upstream") upstreamRequests++;
     else if (entry.usageSource === "estimated") estimatedRequests++;
+    if (entry.truncated) truncatedRequests++;
   }
 
   const totalCost = entries.reduce((sum, e) => sum + coalesce(e.cost), 0);
@@ -164,6 +168,7 @@ function aggregateDay(date: string, entries: ParsedUsageEntry[]): DailyStats {
     avgLatencyMs: entries.length > 0 ? totalLatency / entries.length : 0,
     upstreamRequests,
     estimatedRequests,
+    truncatedRequests,
     byTier,
     byModel,
   };
@@ -186,6 +191,7 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
   let totalLatency = 0;
   let upstreamRequests = 0;
   let estimatedRequests = 0;
+  let truncatedRequests = 0;
   let entriesWithBaseline = 0;
 
   for (const file of filesToRead) {
@@ -204,6 +210,7 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
     totalLatency += dayStats.avgLatencyMs * dayStats.totalRequests;
     upstreamRequests += dayStats.upstreamRequests;
     estimatedRequests += dayStats.estimatedRequests;
+    truncatedRequests += dayStats.truncatedRequests;
 
     // Count entries that actually have a measured baseline.
     for (const e of entries) {
@@ -262,6 +269,7 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
     entriesWithBaseline,
     upstreamRequests,
     estimatedRequests,
+    truncatedRequests,
   };
 }
 
@@ -282,6 +290,14 @@ export function formatStatsAscii(stats: AggregatedStats): string {
   lines.push(`║  Total Requests: ${stats.totalRequests.toString().padEnd(41)}║`);
   lines.push(`║  Total Cost: $${stats.totalCost.toFixed(4).padEnd(43)}║`);
   lines.push(`║  Baseline Cost (Opus 4.5): $${stats.totalBaselineCost.toFixed(4).padEnd(30)}║`);
+
+  // Usage-source breakdown
+  lines.push("╠════════════════════════════════════════════════════════════╣");
+  lines.push(`║  Upstream usage: ${stats.upstreamRequests.toString().padEnd(40)}║`);
+  lines.push(`║  Estimated usage: ${stats.estimatedRequests.toString().padEnd(40)}║`);
+  if (stats.truncatedRequests > 0) {
+    lines.push(`║  Truncated streams: ${stats.truncatedRequests.toString().padEnd(38)}║`);
+  }
 
   // Show savings with note if some entries lack baseline tracking
   const savingsLine = `║  💰 Total Saved: $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`;

@@ -18,6 +18,7 @@ import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
 import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
+import { getStats, formatStatsAscii } from "./stats.js";
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -33,6 +34,8 @@ NexusRouter v${VERSION} - Smart LLM Router (Direct API, No Payments)
 Usage:
   nexusrouter [options]
   nexusrouter doctor [question]
+  nexusrouter stats [days]
+  nexusrouter report [days]
 
 Options:
   --version, -v     Show version number
@@ -42,9 +45,12 @@ Options:
                     (default: ${defaultConfigHint()})
                     resolved to: ${getDefaultConfigPath()}
                     Created automatically on first launch if missing.
+  --json            Output stats/report as JSON instead of ASCII/text
 
 Commands:
   doctor            AI-powered diagnostics
+  stats [days]      Show usage statistics (default: 7 days)
+  report [days]     Show detailed usage report (default: 7 days)
 
 Examples:
   # Start server
@@ -52,6 +58,12 @@ Examples:
 
   # Run diagnostics
   npx nexusrouter doctor "why is my request failing?"
+
+  # Today's usage stats
+  npx nexusrouter stats 1
+
+  # Detailed JSON report for the last 7 days
+  npx nexusrouter report --json
 
 Environment Variables:
   OPENAI_API_KEY      OpenAI API key
@@ -63,21 +75,31 @@ For more info: https://github.com/neochen2286-rgb/NexusRouter
 `);
 }
 
-function parseArgs(args: string[]): {
+type ParsedArgs = {
   version: boolean;
   help: boolean;
   doctor: boolean;
   doctorQuestion?: string;
+  stats: boolean;
+  report: boolean;
+  json: boolean;
+  days?: number;
   port?: number;
   config?: string;
-} {
-  const result = {
+};
+
+export function parseArgs(args: string[]): ParsedArgs {
+  const result: ParsedArgs = {
     version: false,
     help: false,
     doctor: false,
-    doctorQuestion: undefined as string | undefined,
-    port: undefined as number | undefined,
-    config: undefined as string | undefined,
+    doctorQuestion: undefined,
+    stats: false,
+    report: false,
+    json: false,
+    days: undefined,
+    port: undefined,
+    config: undefined,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -86,15 +108,27 @@ function parseArgs(args: string[]): {
       result.version = true;
     } else if (arg === "--help" || arg === "-h") {
       result.help = true;
+    } else if (arg === "--json") {
+      result.json = true;
     } else if (arg === "doctor" || arg === "--doctor") {
       result.doctor = true;
-      // Collect remaining args as question
       result.doctorQuestion =
-        args
-          .slice(i + 1)
-          .join(" ")
-          .trim() || undefined;
+        args.slice(i + 1).join(" ").trim() || undefined;
       break;
+    } else if (arg === "stats") {
+      result.stats = true;
+      const next = args[i + 1];
+      if (next && /^\d+$/.test(next)) {
+        result.days = parseInt(next, 10);
+        i++;
+      }
+    } else if (arg === "report") {
+      result.report = true;
+      const next = args[i + 1];
+      if (next && /^\d+$/.test(next)) {
+        result.days = parseInt(next, 10);
+        i++;
+      }
     } else if (arg === "--port" && args[i + 1]) {
       result.port = parseInt(args[i + 1], 10);
       i++;
@@ -105,6 +139,77 @@ function parseArgs(args: string[]): {
   }
 
   return result;
+}
+
+/** Ask /health whether accounting is currently degraded. */
+async function queryDegradedState(port: number): Promise<{ degraded: boolean; reason: string | null } | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      accounting?: { degraded: boolean; degradedReason: string | null };
+    };
+    if (!data.accounting) return null;
+    return {
+      degraded: data.accounting.degraded,
+      reason: data.accounting.degradedReason,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function runStats(args: ParsedArgs): Promise<void> {
+  const days = args.days ?? 7;
+  const stats = await getStats(days);
+  if (args.json) {
+    console.log(JSON.stringify(stats, null, 2));
+  } else {
+    console.log(formatStatsAscii(stats));
+  }
+}
+
+async function runReport(args: ParsedArgs): Promise<void> {
+  const days = args.days ?? 7;
+  const stats = await getStats(days);
+  const port = args.port || parseInt(process.env.NEXUSROUTER_PORT || "8402", 10);
+  const degraded = await queryDegradedState(port);
+
+  const report = {
+    ...stats,
+    generatedAt: new Date().toISOString(),
+    degradedNow: degraded?.degraded ?? null,
+    degradedReason: degraded?.reason ?? null,
+  };
+
+  if (args.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  const lines: string[] = [];
+  lines.push("═".repeat(62));
+  lines.push(` NexusRouter Usage Report — ${stats.period}`.padEnd(62) + "═");
+  lines.push("═".repeat(62));
+  lines.push(`  Total requests:        ${stats.totalRequests}`);
+  lines.push(`  Upstream usage:        ${stats.upstreamRequests}`);
+  lines.push(`  Estimated usage:       ${stats.estimatedRequests}`);
+  if (stats.truncatedRequests > 0) {
+    lines.push(`  Truncated streams:     ${stats.truncatedRequests}`);
+  }
+  lines.push(`  Entries with baseline: ${stats.entriesWithBaseline}`);
+  lines.push(`  Total cost:            $${stats.totalCost.toFixed(4)}`);
+  lines.push(`  Baseline cost:         $${stats.totalBaselineCost.toFixed(4)}`);
+  lines.push(`  Total saved:           $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`);
+  lines.push(`  Avg latency:           ${stats.avgLatencyMs.toFixed(0)} ms`);
+  if (report.degradedNow === true) {
+    lines.push(`  ⚠️  Accounting degraded: ${report.degradedReason || "unknown reason"}`);
+  } else if (report.degradedNow === false) {
+    lines.push(`  ✅ Accounting healthy`);
+  } else {
+    lines.push(`  ⚪ Degraded state unknown (server not running on port ${port})`);
+  }
+  console.log(lines.join("\n"));
 }
 
 async function main(): Promise<void> {
@@ -121,8 +226,17 @@ async function main(): Promise<void> {
   }
 
   if (args.doctor) {
-    // TODO: Implement doctor command without wallet
     console.log("Doctor command not yet implemented for NexusRouter");
+    process.exit(0);
+  }
+
+  if (args.stats) {
+    await runStats(args);
+    process.exit(0);
+  }
+
+  if (args.report) {
+    await runReport(args);
     process.exit(0);
   }
 
