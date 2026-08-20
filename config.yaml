@@ -30,6 +30,11 @@ providers:
     apiKey: ${GOOGLE_API_KEY}
     maxRetries: 3
 
+# 四档模型映射。fallback 已接线：primary 返回非 2xx 且尚未开始流式输出时
+# 按序降级，全部失败时客户端收到最后一次错误。注意：fallback 复用请求协议
+# 转发（Anthropic 协议的请求降级时仍以 Anthropic 格式发出），因此 fallback
+# 必须与请求协议同构，或指向会做协议转换的网关；跨协议直连（如 Claude Code
+# 流量降级到 google/* 的官方端点）必然失败，配置前请确认。
 tiers:
   SIMPLE:
     primary: openai/gpt-4o-mini
