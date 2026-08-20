@@ -32,6 +32,11 @@ describe("parseArgs", () => {
     expect(args.days).toBeUndefined();
   });
 
+  it("parses dash command", () => {
+    const args = parseArgs(["dash"]);
+    expect(args.dash).toBe(true);
+  });
+
   it("parses port and config options", () => {
     const args = parseArgs(["--port", "9999", "--config", "/tmp/cfg.yaml"]);
     expect(args.port).toBe(9999);
