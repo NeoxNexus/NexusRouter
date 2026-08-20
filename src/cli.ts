@@ -17,6 +17,7 @@
 import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
 import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
+import { flushLogs, flushLogsSync } from "./logger.js";
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -157,14 +158,20 @@ async function main(): Promise<void> {
   // Handle graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\n[NexusRouter] Received ${signal}, shutting down...`);
+    // Drain queued log lines before exiting — batching means up to 200 ms of
+    // routing decisions live only in memory (Savings Ledger 决策 5).
+    await flushLogs();
     process.exit(0);
   };
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  // Last resort for exits we do not control (uncaught throw, process.exit
+  // elsewhere): async work can no longer run here, so drain synchronously.
+  process.on("exit", () => flushLogsSync());
 
   // Keep process alive
-  await new Promise(() => { });
+  await new Promise(() => {});
 }
 
 main().catch((err) => {

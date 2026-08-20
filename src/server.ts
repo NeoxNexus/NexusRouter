@@ -15,7 +15,7 @@ import {
 import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/types.js";
 import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
-import { logRoutingDecision, type RoutingLogEntry } from "./logger.js";
+import { queueRoutingDecision, logWriterState, type RoutingLogEntry } from "./logger.js";
 
 // Fastify only manages the single server it creates. We capture its raw
 // request handler (via serverFactory) so startServer can bind additional
@@ -122,7 +122,12 @@ async function handleUnified(
             });
 
       // Step 4: Weighted fusion of hints + classifier
-      const tier = resolveWeightedTier(classifierResult, hints, weights, config.hints?.thinking ?? "off");
+      const tier = resolveWeightedTier(
+        classifierResult,
+        hints,
+        weights,
+        config.hints?.thinking ?? "off",
+      );
 
       const tierConfig = config.tiers[tier as keyof typeof config.tiers];
       if (!tierConfig) {
@@ -249,7 +254,9 @@ async function handleUnified(
   });
 
   if (routingLog) {
-    void logRoutingDecision({
+    // Queued, not awaited: batching keeps the log off the throughput ceiling
+    // (per-request appendFile caps at ~2,959 req/s — Savings Ledger 决策 5).
+    queueRoutingDecision({
       ...routingLog,
       upstreamStatus: result.status,
       totalLatencyMs: Date.now() - startedAt,
@@ -407,8 +414,13 @@ export async function createServer(
     aiThreshold: config.router.layers.ai.fallbackConfidence,
   });
 
-  // Health check
-  app.get("/health", async () => ({ status: "ok", timestamp: Date.now() }));
+  // Health check. `ledger` makes the log-write state observable (决策 6 / L3) —
+  // otherwise "did persistence degrade?" can only be guessed at.
+  app.get("/health", async () => ({
+    status: "ok",
+    timestamp: Date.now(),
+    ledger: logWriterState(),
+  }));
 
   // ─── Route registration helper ───
   const registerRoutes = (prefix: string, protocol: ProtocolType, agentPrefix: string | null) => {
@@ -478,7 +490,10 @@ export async function startServer(configPath?: string, port?: number): Promise<R
     } catch (err) {
       // A host may be unbindable (e.g. IPv6 disabled → ::1 throws). Skip it
       // but keep going, as long as at least one address binds.
-      app.log.warn({ err, host, port: listenPort }, `Failed to bind ${host}:${listenPort}, skipping`);
+      app.log.warn(
+        { err, host, port: listenPort },
+        `Failed to bind ${host}:${listenPort}, skipping`,
+      );
     }
   }
 

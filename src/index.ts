@@ -62,9 +62,14 @@ export type { RetryConfig } from "./retry.js";
 export { getStats, formatStatsAscii } from "./stats.js";
 export type { DailyStats, AggregatedStats } from "./stats.js";
 
-// Re-export logger
-export { logUsage } from "./logger.js";
+// Re-export logger. `flushLogs` matters to embedders: routing decisions are
+// batched, so up to `flushIntervalMs` of them live only in memory at exit.
+export { logUsage, flushLogs, flushLogsSync, logWriterState } from "./logger.js";
 export type { UsageEntry } from "./logger.js";
+
+// Re-export log path resolution (single source of truth for the log dir)
+export { resolveLogDir, defaultLogDir, logFilePath } from "./paths.js";
+export type { LogKind } from "./paths.js";
 
 // Re-export errors
 export {

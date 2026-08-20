@@ -296,7 +296,12 @@ claude   # 15维分类器自动路由，无需其他配置
   - [ ] **5.6.3** `src/adapter/` usage 捕获：非流式复用既有 `JSON.parse`（+0.0001ms）；流式用 **4KB 预分配环形尾窗**，写法锁定 `Uint8Array` + `TypedArray.set`（实测 43-57 ns/chunk；改用 `Buffer.concat` 累积会慢 **1100×**，评审红线）
   - [ ] **5.6.4** 日志 schema v2（`costUsd` / `baselineCostUsd` / `savedUsd` / `usageSource` / `truncated`），`parseLogFile` 保留 v1 兼容分支
   - [ ] **5.6.5** `cli.ts` 补 `stats` / `report` 子命令，报表区分「真实 usage」与「估算」口径（实时大屏 `dash` 子命令同批接入，见 6.6）
-  - [ ] **5.6.6** `LedgerWriter` 批量 flush（满 64 行 / 200ms / 退出时）—— 🔴 **不做则吞吐腰斩**：每请求 2 次 `appendFile` 实测把上限从 2,959 压到 1,522 req/s，批量后 139,537 req/s（70×）。**此项不依赖 3.3，可作为 Step 0 独立先行**，同时解决现存 `logRoutingDecision` 的落盘天花板
+  - [x] **5.6.6** `LedgerWriter` 批量 flush（满 64 行 / 200ms / 退出时）—— ✅ **2026-08-20 完成（Step 0，已独立先行，不依赖 3.3）**
+    - `src/accounting/ledger-writer.ts` + 13 例测试。队列为**数组 + head 指针**（触顶丢最旧走 O(1)，不用 `shift()` 的 O(n)；head 累积 4096 槽后整理数组），flush 用 Promise 链串行化，`take()` 在任何 `await` **之前**换出队列，故 flush 期间新入队的行既不丢也不重写；按目标文件分组，N 行 M 文件只花 M 次 `appendFile`
+    - `logger.ts` 保留**两条写路径**：`logRoutingDecision()` 仍是 await 即落盘（现有测试与工具依赖此语义，向后兼容红线），新增同步的 `queueRoutingDecision()` 走批量，`server.ts` 请求路径改用后者；序列化与 `promptPreview` 截断由私有 `serializeRouting()` 共用，两条路径不可能漂移
+    - 退出兜底：`cli.ts` 的 SIGINT/SIGTERM 处理器 `await flushLogs()`，另注册 `process.on("exit")` → `flushLogsSync()`。**`LedgerWriter` 自身不注册任何信号监听器** —— 注册 SIGINT 会抑制 Node 默认退出行为，作为库被引用时会吃掉宿主的 Ctrl+C
+    - 定时器 `unref()`（测试用 `timerHasRef()` 断言为 false）；磁盘故障时吞错 + 丢批（不重试，避免堆内存无界增长）+ 计数 `writeFailures`；连续触顶 3 次单向降级并 WARN 一次
+    - 顺带交付 5.6.7 的 **L3 一角**：`/health` 已返回 `ledger: { pending, droppedLines, writeFailures, degraded, degradedReason }`，`accounting.*` 开关字段待 Step 2 补齐
   - [ ] **5.6.7** 🔴 **分层熔断开关（必须先于 5.6.3 接线交付）**——「发现性能问题能及时关闭」的落地（方案决策 6）
     - **L0 分粒度配置**：`accounting.enabled` / `captureNonStreaming`（+0.1 µs）/ `captureStreaming`（+22 µs，出问题第一个关）/ `persist`。三条路径成本差 **220×**，禁止一个总布尔一刀切
     - **L1 热切换**：`fs.watch(config.yaml)` + 200ms debounce，**仅**热更新 `accounting.*` 子树（现状 `loadConfig()` 只在启动调用一次，改配置必须重启，不满足「及时」）。否决 SIGHUP（**win32 不支持**，本项目主平台）与新增 HTTP 管理端点（流量咽喉扩大攻击面）
@@ -305,7 +310,8 @@ claude   # 15维分类器自动路由，无需其他配置
     - **首版按 experimental 交付、`enabled: false` 默认关闭**（对应本 Phase 验收标准「各能力标注为 enabled / optional / experimental」），Phase 7.3 压测通过后再翻默认值；`accounting` 段缺失等价 `enabled: false`，老配置零改动可用（向后兼容红线）
     - 实测：关闭后残留开销 **低于测量噪声（±5 µs）**，故 `sniffer?.push()` 一个可选链即可，不写双循环体
   - 性能实测基线：热路径净增 **+0.046 ms/请求**（典型 CC 回答 800 chunk），每连接常驻 **~3 KB**，事件循环延迟 avg 0.006ms 不变
-  - 施工顺序（方案第 9 节）：Step 0（5.6.6，不依赖 3.3）→ Step 1（5.6.1/5.6.2 纯函数）→ **Step 2（5.6.7 开关骨架，不依赖 3.3）→ Step 3（5.6.3 接线）** → Step 4（5.6.5 CLI）→ Step 5（清理缺陷 7/9）。**开关必须先于接线**：先接线后补开关等于没刹车先踩油门，届时唯一手段是回滚代码而非改配置
+  - 施工顺序（方案第 9 节）：~~Step 0（5.6.6，不依赖 3.3）~~ ✅ 已完成 → Step 1（5.6.1/5.6.2 纯函数）→ **Step 2（5.6.7 开关骨架，不依赖 3.3）→ Step 3（5.6.3 接线）** → Step 4（5.6.5 CLI）→ Step 5（清理缺陷 7/9）。**开关必须先于接线**：先接线后补开关等于没刹车先踩油门，届时唯一手段是回滚代码而非改配置
+  - 📌 **顺带修掉一处红灯**（2026-08-20）：`default-config.test.ts` 的「内嵌模板与仓库根 `config.yaml` 字节相同」漂移守卫自 `c3dfe00` 起就是红的，且**断言的不变式本身是错的** —— 仓库根 `config.yaml` 是维护者的实际部署配置（钉死某网关 `baseUrl`、`passthroughApiKey: true`、四档 opus），若真拿它当新用户默认模板，等于给每个新装用户硬编码第三方网关并默认打开凭证透传。已改为**三条真正有意义的守卫**：模板过真实 `ConfigSchema` 校验、顶层配置段覆盖仓库 config 所需段（`hints` 可选）、`router.hosts` 必须仍是回环双栈（`c2bf803` 的回归守卫）
 - [ ] **5.7** 补齐集成测试与功能文档
 - [ ] 全量回归 + 代码评审 + 提交
 
@@ -370,7 +376,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **7.1** 实现真正的 Buffer Passthrough（同协议时尽量跳过多余序列化）
 - [ ] **7.2** Adapter 单例化与轻量对象复用
 - [ ] **7.3** 负载测试（autocannon / k6），定位并优化瓶颈
-  - 已知首个瓶颈：日志落盘。实测 `appendFile` 每请求 1 次 → 上限 2,959 req/s（**现状即如此**）；批量 flush 后 139,537 req/s。见 5.6.6 / [方案决策 5](docs/plans/2026-08-19-savings-ledger-design.md)
+  - 已知首个瓶颈：日志落盘。实测 `appendFile` 每请求 1 次 → 上限 2,959 req/s；批量 flush 后 139,537 req/s。✅ **2026-08-20 已换路**：请求路径改走 `queueRoutingDecision()`（5.6.6 / Step 0）；此处待 7.3 实测复核天花板是否真的抬到预期量级。见 [方案决策 5](docs/plans/2026-08-19-savings-ledger-design.md)
 - [ ] **7.4** `Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）
 - [ ] **7.5** 输出性能测试报告
 - [ ] 全量回归 + 代码评审 + 提交

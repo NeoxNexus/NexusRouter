@@ -7,11 +7,18 @@
  *
  * MVP: append-only JSON lines. No rotation, no cleanup.
  * Logging never breaks the request flow — all errors are swallowed.
+ *
+ * Two write paths on purpose (Savings Ledger design, 决策 5):
+ *   - `logRoutingDecision()` — durable on await, one `appendFile` per call.
+ *     Kept for tests and tooling that read the file right after awaiting.
+ *   - `queueRoutingDecision()` — synchronous enqueue, batched by `LedgerWriter`.
+ *     This is the request-path variant: per-request `appendFile` caps throughput
+ *     at ~2,959 req/s, batching measured 139,537 req/s.
  */
 
-import { appendFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { appendFile } from "node:fs/promises";
+import { ensureLogDir, logFilePath, resolveLogDir } from "./paths.js";
+import { LedgerWriter } from "./accounting/ledger-writer.js";
 
 export type UsageEntry = {
   timestamp: string;
@@ -29,19 +36,39 @@ export type UsageEntry = {
   service?: string;
 };
 
-const DEFAULT_LOG_DIR = join(homedir(), ".nexusrouter", "logs");
 const PROMPT_PREVIEW_MAX = 200;
-const readyDirs = new Set<string>();
 
-/** Resolved per call so NEXUSROUTER_LOG_DIR can be set after module load. */
-function resolveLogDir(): string {
-  return process.env.NEXUSROUTER_LOG_DIR || DEFAULT_LOG_DIR;
+/**
+ * Process-wide batching writer. Its timer is unref'd, so it never holds the
+ * process open; `flushLogs()` / the exit hooks drain whatever is left.
+ */
+const writer = new LedgerWriter();
+
+/** Drain queued log lines. Call before exiting so nothing is lost. */
+export function flushLogs(): Promise<void> {
+  return writer.flush();
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  if (readyDirs.has(dir)) return;
-  await mkdir(dir, { recursive: true });
-  readyDirs.add(dir);
+/** Synchronous drain for `process.on("exit")`, where async work cannot run. */
+export function flushLogsSync(): void {
+  writer.flushSync();
+}
+
+/** Ledger state for `/health` (决策 6 / L3). */
+export function logWriterState(): {
+  pending: number;
+  droppedLines: number;
+  writeFailures: number;
+  degraded: boolean;
+  degradedReason: string | null;
+} {
+  return {
+    pending: writer.pending,
+    droppedLines: writer.droppedLines,
+    writeFailures: writer.writeFailures,
+    degraded: writer.degraded,
+    degradedReason: writer.degradedReason,
+  };
 }
 
 /**
@@ -50,10 +77,9 @@ async function ensureDir(dir: string): Promise<void> {
 export async function logUsage(entry: UsageEntry): Promise<void> {
   try {
     const dir = resolveLogDir();
-    await ensureDir(dir);
+    await ensureLogDir(dir);
     const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
-    const file = join(dir, `usage-${date}.jsonl`);
-    await appendFile(file, JSON.stringify(entry) + "\n");
+    await appendFile(logFilePath("usage", date, dir), JSON.stringify(entry) + "\n");
   } catch {
     // Never break the request flow
   }
@@ -100,6 +126,10 @@ export type RoutingLogEntry = {
 /**
  * Log a routing decision as a JSON line.
  *
+ * Durable on await: the line is on disk once this resolves. Prefer
+ * `queueRoutingDecision()` on the request path — this variant costs one
+ * `appendFile` per call and is the ~2,959 req/s throughput ceiling.
+ *
  * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexusrouter/logs
  */
 export async function logRoutingDecision(
@@ -107,15 +137,34 @@ export async function logRoutingDecision(
   dir: string = resolveLogDir(),
 ): Promise<void> {
   try {
-    await ensureDir(dir);
-    const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
-    const file = join(dir, `routing-${date}.jsonl`);
-    const truncated: RoutingLogEntry = {
-      ...entry,
-      promptPreview: entry.promptPreview.slice(0, PROMPT_PREVIEW_MAX),
-    };
-    await appendFile(file, JSON.stringify(truncated) + "\n");
+    await ensureLogDir(dir);
+    const { date, line } = serializeRouting(entry);
+    await appendFile(logFilePath("routing", date, dir), line + "\n");
   } catch {
     // Never break the request flow
   }
+}
+
+/**
+ * Queue a routing decision for batched write. Synchronous, no I/O, never throws
+ * — the request path must never await the disk (决策 5).
+ *
+ * The line lands on disk on the next flush: 64 queued lines, 200 ms, an explicit
+ * `flushLogs()`, or process exit.
+ */
+export function queueRoutingDecision(entry: RoutingLogEntry, dir: string = resolveLogDir()): void {
+  const { date, line } = serializeRouting(entry);
+  writer.append(logFilePath("routing", date, dir), line);
+}
+
+/** Shared by both write paths so they can never drift in shape or truncation. */
+function serializeRouting(entry: RoutingLogEntry): { date: string; line: string } {
+  const truncated: RoutingLogEntry = {
+    ...entry,
+    promptPreview: entry.promptPreview.slice(0, PROMPT_PREVIEW_MAX),
+  };
+  return {
+    date: entry.timestamp.slice(0, 10), // YYYY-MM-DD
+    line: JSON.stringify(truncated),
+  };
 }
