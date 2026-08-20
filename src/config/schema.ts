@@ -89,7 +89,8 @@ export const PriceOverrideSchema = z.object({
 export const PriceOverridesSchema = z.record(z.string(), PriceOverrideSchema).default({});
 
 export const AccountingConfigSchema = z.object({
-  /** First version ships as experimental, default off (向后兼容红线). */
+  /** First version ships as experimental, default off (向后兼容红线).
+   *  The first-launch template in default-config.ts explicitly turns it on. */
   enabled: z.boolean().default(false),
   /** +0.1 µs — almost no reason to turn off. */
   captureNonStreaming: z.boolean().default(true),

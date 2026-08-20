@@ -231,10 +231,10 @@ describe("AccountingSwitch — L2 degrade", () => {
     const writer = sw.ledgerWriter;
     expect(writer).not.toBeNull();
 
-    writer!.append("/tmp/ignored.jsonl", "{\"line\":1}");
-    writer!.append("/tmp/ignored.jsonl", "{\"line\":2}");
-    writer!.append("/tmp/ignored.jsonl", "{\"line\":3}");
-    writer!.append("/tmp/ignored.jsonl", "{\"line\":4}");
+    writer!.append("/tmp/ignored.jsonl", '{"line":1}');
+    writer!.append("/tmp/ignored.jsonl", '{"line":2}');
+    writer!.append("/tmp/ignored.jsonl", '{"line":3}');
+    writer!.append("/tmp/ignored.jsonl", '{"line":4}');
 
     expect(sw.health().degraded).toBe(true);
     expect(sw.health().degradedReason).toContain("ledger-queue-overflow");
@@ -274,7 +274,12 @@ describe("AccountingSwitch — L3 health", () => {
   it("exposes the expected health shape", () => {
     const sw = new AccountingSwitch({
       configPath,
-      config: cfg({ enabled: true, captureNonStreaming: true, captureStreaming: true, persist: true }),
+      config: cfg({
+        enabled: true,
+        captureNonStreaming: true,
+        captureStreaming: true,
+        persist: true,
+      }),
     });
     const h = sw.health();
     expect(h).toEqual({
