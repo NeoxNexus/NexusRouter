@@ -71,6 +71,32 @@ export type { UsageEntry } from "./logger.js";
 export { resolveLogDir, defaultLogDir, logFilePath } from "./paths.js";
 export type { LogKind } from "./paths.js";
 
+// Re-export tiered pricing (Savings Ledger 决策 2). `costOf` returns null for an
+// unknown model — never 0, which would read as "this request was free".
+export {
+  costOf,
+  resolvePrice,
+  emptyUsage,
+  isRoutingPlaceholder,
+  DEFAULT_CACHE_MULTIPLIERS,
+} from "./pricing/price-book.js";
+export type {
+  TokenUsage,
+  ModelPrice,
+  CacheMultipliers,
+  PriceOverride,
+  PriceOverrides,
+} from "./pricing/price-book.js";
+
+// Re-export counterfactual accounting (Savings Ledger 决策 1)
+export { resolveBaseline } from "./accounting/baseline.js";
+export type {
+  BaselineMode,
+  BaselineOptions,
+  BaselineInput,
+  BaselineResult,
+} from "./accounting/baseline.js";
+
 // Re-export errors
 export {
   ConfigurationError,
