@@ -20,15 +20,16 @@ export const TierConfigSchema = z.object({
 });
 
 export const OllamaModelsSchema = z.object({
-  fast: z.string().default("qwen2.5:3b"),
-  accurate: z.string().default("qwen2.5:14b"),
+  fast: z.string().default("qwen3:4b"),
+  accurate: z.string().default("qwen3:8b"),
 });
 
 export const OllamaConfigSchema = z.object({
   enabled: z.boolean().default(false),
   baseUrl: z.string().default("http://localhost:11434"),
   models: OllamaModelsSchema.default({}),
-  timeout: z.number().default(30000),
+  // 分类在请求关键路径上：超时即降级到启发式兜底，默认压到 800ms，宁短勿长。
+  timeout: z.number().default(800),
 });
 
 export const LayersRulesSchema = z.object({

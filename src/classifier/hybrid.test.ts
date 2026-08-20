@@ -13,10 +13,11 @@ describe("HybridClassifier", () => {
     mockFetch = vi.fn();
     global.fetch = mockFetch;
 
-    mockOllama = new OllamaClient("http://localhost:11434");
+    mockOllama = new OllamaClient({ baseUrl: "http://localhost:11434" });
     config = {
       heuristicThreshold: 0.92,
       aiThreshold: 0.75,
+      aiEnabled: true,
     };
   });
 
@@ -93,6 +94,67 @@ describe("HybridClassifier", () => {
 
       // Should use AI layer or fallback
       expect(["ai", "fallback"]).toContain(result.layer);
+    });
+  });
+
+  describe("Layer 2 gating via aiEnabled", () => {
+    // 低置信中性句：Layer 0 不命中、Layer 1 置信 0.5 < 0.92，必走 Layer 2/3。
+    const neutralPrompt = "process this data";
+    const neutralContext = {
+      messageCount: 1,
+      hasSystemPrompt: false,
+      hasTools: false,
+    };
+
+    it("never calls fetch and lands on Layer 3 when aiEnabled is false", async () => {
+      const classifier = new HybridClassifier(mockOllama, {
+        ...config,
+        aiEnabled: false,
+      });
+
+      const result = await classifier.classify(neutralPrompt, neutralContext);
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.layer).toBe("fallback");
+      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.tier).toBe("MEDIUM");
+    });
+
+    it("invokes Layer 2 as before when aiEnabled is true", async () => {
+      const spyOllama = {
+        classify: vi.fn().mockResolvedValue({
+          tier: "MEDIUM",
+          confidence: 0.88,
+          latency: 10,
+        }),
+      } as unknown as OllamaClient;
+
+      const classifier = new HybridClassifier(spyOllama, {
+        ...config,
+        aiEnabled: true,
+      });
+
+      const result = await classifier.classify(neutralPrompt, neutralContext);
+
+      expect(spyOllama.classify).toHaveBeenCalledTimes(1);
+      expect(result.layer).toBe("ai");
+      expect(result.reason).toBe("ai-classified");
+    });
+
+    it("skips the Ollama client entirely when aiEnabled is false", async () => {
+      const spyOllama = {
+        classify: vi.fn(),
+      } as unknown as OllamaClient;
+
+      const classifier = new HybridClassifier(spyOllama, {
+        ...config,
+        aiEnabled: false,
+      });
+
+      const result = await classifier.classify(neutralPrompt, neutralContext);
+
+      expect(spyOllama.classify).not.toHaveBeenCalled();
+      expect(result.layer).toBe("fallback");
     });
   });
 

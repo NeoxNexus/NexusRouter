@@ -63,15 +63,19 @@ tiers:
     primary: openai/o3-mini
     fallback: [anthropic/claude-haiku-3-5-20250620]
 
-# Ollama 本地小模型分类层。服务器上没装 Ollama 时必须保持 false，
-# 否则每个请求都要等连接失败降级，白白增加延迟
+# Ollama 本地小模型分类层（Layer 2）。enabled 是该层总开关：false 时分类器
+# 整块跳过 Layer 2，不会向 baseUrl 发任何请求，低置信流量直接落启发式兜底。
+# 启用前先 ollama pull 对应模型；pull 不等于加载进内存，建议再执行
+# ollama run qwen3:4b "" 预热，否则冷启动/闲置卸载后的首个请求会因 800ms
+# 超时降级（属预期，可按需调大 timeout）。分类在请求关键路径上，
+# timeout（毫秒）到点即降级兜底，宁短勿长。
 ollama:
   enabled: false
   baseUrl: http://localhost:11434
   models:
-    fast: qwen3.5:2b
-    accurate: qwen3.5:4b
-  timeout: 30000
+    fast: qwen3:4b
+    accurate: qwen3:8b
+  timeout: 800
 `;
 
 /**

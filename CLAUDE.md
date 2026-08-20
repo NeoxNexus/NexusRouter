@@ -116,9 +116,9 @@ ollama:
   enabled: false
   baseUrl: http://localhost:11434
   models:
-    fast: qwen2.5:3b
-    accurate: qwen2.5:14b
-  timeout: 30000
+    fast: qwen3:4b
+    accurate: qwen3:8b
+  timeout: 800
 ```
 
 ### 环境变量

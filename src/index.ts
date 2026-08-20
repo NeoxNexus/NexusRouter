@@ -37,7 +37,7 @@ export type { Config } from "./config/loader.js";
 // Re-export classifier
 export { HybridClassifier };
 export type { HybridConfig } from "./classifier/hybrid.js";
-export type { ClassificationResult, HeuristicContext } from "./ollama/client.js";
+export type { ClassificationResult, HeuristicContext, OllamaClientOptions } from "./ollama/client.js";
 
 // Re-export Ollama client
 export { OllamaClient };

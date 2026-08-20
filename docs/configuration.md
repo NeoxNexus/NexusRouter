@@ -88,9 +88,9 @@ ollama:
   enabled: false
   baseUrl: http://localhost:11434
   models:
-    fast: qwen2.5:3b
-    accurate: qwen2.5:14b
-  timeout: 30000
+    fast: qwen3:4b
+    accurate: qwen3:8b
+  timeout: 800
 ```
 
 ---
@@ -162,11 +162,11 @@ TIER_NAME:
 | :---------------- | :------ | :----------------------- | :------------------------ |
 | `enabled`         | boolean | `false`                  | 是否启用 Ollama AI 分类层 |
 | `baseUrl`         | string  | `http://localhost:11434` | Ollama 服务地址           |
-| `models.fast`     | string  | `qwen2.5:3b`             | 快速分类模型              |
-| `models.accurate` | string  | `qwen2.5:14b`            | 高精度分类模型            |
-| `timeout`         | number  | `30000`                  | Ollama 调用超时           |
+| `models.fast`     | string  | `qwen3:4b`               | 快速分类模型（需先 `ollama pull`） |
+| `models.accurate` | string  | `qwen3:8b`               | 高精度分类模型                     |
+| `timeout`         | number  | `800`                    | Ollama 调用超时（毫秒），到点即降级兜底 |
 
-> 如果服务器没有运行 Ollama，请务必保持 `enabled: false`，否则每个请求都会等待连接失败后降级，造成明显延迟。
+> `enabled: false` 时分类器整块跳过 Ollama 层（Layer 2），不会向 `baseUrl` 发任何请求。`enabled: true` 而 Ollama 不可达时，每个低置信请求最多等 `timeout` 即降级兜底。
 
 ---
 
@@ -209,7 +209,7 @@ providers:
 没设置 `router.timeout`，schema 默认 1000ms。在 `config.yaml` 里加 `timeout: 300000`。
 
 **Q: 每个请求都慢几秒才响应**
-大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。关掉它或启动 Ollama。
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama：Layer 2 每次请求都要等连接失败，直到 `ollama.timeout`（默认 800ms，若被调大会更慢）后降级。`enabled: false` 时该层整体跳过、完全不访问 localhost——关掉它或启动 Ollama。
 
 **Q: 上游 404，模型不存在**
 `tiers` 里的模型名和上游平台（尤其 new-api）里的名字不一致。转发时 `provider/` 前缀会被剥掉，上游收到的是 `/` 后面的部分，按那个核对。

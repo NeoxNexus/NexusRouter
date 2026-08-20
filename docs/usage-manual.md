@@ -180,12 +180,12 @@ tiers:
   REASONING: { primary: provider/模型, fallback: [...] }
 
 ollama:
-  enabled: false # 没装 Ollama 必须 false，否则每请求白等降级
+  enabled: false # 总开关：false 时 Layer 2 整块跳过、零请求；true 且 Ollama 不可达时最多等 timeout 即降级兜底
   baseUrl: http://localhost:11434
   models:
-    fast: qwen2.5:3b # AI 分类层用的本地小模型
-    accurate: qwen2.5:14b
-  timeout: 30000
+    fast: qwen3:4b # AI 分类层用的本地小模型
+    accurate: qwen3:8b
+  timeout: 800 # 到点即降级兜底，宁短勿长
 ```
 
 ### 5.2 环境变量展开
@@ -463,7 +463,7 @@ npm run test:e2e:tool-ids             # 端到端 tool id 测试
 没设置 `router.timeout`，schema 默认 1000ms。在 `config.yaml` 里加 `timeout: 300000`。
 
 **Q: 每个请求都慢几秒才响应**
-大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。关掉它或启动 Ollama。
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama：Layer 2 每次请求都要等连接失败，直到 `ollama.timeout`（默认 800ms，若被调大会更慢）后降级。`enabled: false` 时该层整体跳过、完全不访问 localhost——关掉它或启动 Ollama。
 
 **Q: 上游 404，模型不存在**
 tiers 里的模型名和上游平台（尤其 new-api）里的名字不一致。转发时 provider 前缀会被剥掉，上游收到的是 `/` 后面的部分，按那个核对。

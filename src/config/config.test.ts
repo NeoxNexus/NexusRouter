@@ -68,9 +68,9 @@ ollama:
   enabled: false
   baseUrl: http://localhost:11434
   models:
-    fast: qwen2.5:3b
-    accurate: qwen2.5:14b
-  timeout: 30000
+    fast: qwen3:4b
+    accurate: qwen3:8b
+  timeout: 800
 `;
     await fs.writeFile(testConfigPath, configContent);
 
@@ -262,7 +262,39 @@ tiers:
     expect(config.router.classifier).toBe("hybrid"); // default
     expect(config.router.layers.rules.enabled).toBe(true);
     expect(config.ollama.enabled).toBe(false);
-    expect(config.ollama.timeout).toBe(30000);
+    expect(config.ollama.timeout).toBe(800);
+    expect(config.ollama.models.fast).toBe("qwen3:4b");
+    expect(config.ollama.models.accurate).toBe("qwen3:8b");
+  });
+
+  it("should backfill schema defaults for partially provided ollama config", async () => {
+    const configContent = `
+router:
+  port: 8402
+providers:
+  openai:
+    apiKey: test-key
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+ollama:
+  enabled: true
+`;
+    await fs.writeFile(testConfigPath, configContent);
+
+    const config = await loadConfig(testConfigPath);
+
+    expect(config.ollama.enabled).toBe(true);
+    expect(config.ollama.baseUrl).toBe("http://localhost:11434");
+    expect(config.ollama.models.fast).toBe("qwen3:4b");
+    expect(config.ollama.models.accurate).toBe("qwen3:8b");
+    expect(config.ollama.timeout).toBe(800);
   });
 
   it("should default router.hosts to loopback dual-stack", async () => {

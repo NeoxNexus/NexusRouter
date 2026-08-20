@@ -22,7 +22,7 @@ describe("OllamaClient", () => {
         status: 200,
       } as Response);
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
       const result = await client.healthCheck();
 
       expect(result).toBe(true);
@@ -32,7 +32,7 @@ describe("OllamaClient", () => {
     it("should return false when Ollama is not available", async () => {
       mockFetch.mockRejectedValue(new Error("Connection refused"));
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
       const result = await client.healthCheck();
 
       expect(result).toBe(false);
@@ -44,7 +44,7 @@ describe("OllamaClient", () => {
         status: 500,
       } as Response);
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
       const result = await client.healthCheck();
 
       expect(result).toBe(false);
@@ -65,7 +65,7 @@ describe("OllamaClient", () => {
         json: () => Promise.resolve(mockResponse),
       } as Response);
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
       const context = {
         messageCount: 1,
         hasSystemPrompt: false,
@@ -78,10 +78,50 @@ describe("OllamaClient", () => {
       expect(result.latency).toBeGreaterThanOrEqual(0);
     });
 
+    it("should send the configured model and keep_alive in the request body", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            response: JSON.stringify({ tier: "MEDIUM", confidence: 0.8 }),
+          }),
+      } as Response);
+
+      const client = new OllamaClient({
+        baseUrl: "http://localhost:11434",
+        model: "qwen3:4b",
+      });
+      await client.classify("test", { messageCount: 1, hasSystemPrompt: false });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe("http://localhost:11434/api/generate");
+      const body = JSON.parse(init.body);
+      expect(body.model).toBe("qwen3:4b");
+      expect(body.keep_alive).toBe("30m");
+      expect(body.format).toBe("json");
+      expect(body.prompt).toContain("no explanation");
+    });
+
+    it("should fall back to the historical default model when none is given", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            response: JSON.stringify({ tier: "SIMPLE", confidence: 0.9 }),
+          }),
+      } as Response);
+
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
+      await client.classify("test", { messageCount: 1, hasSystemPrompt: false });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.model).toBe("qwen2.5:3b");
+    });
+
     it("should handle network errors gracefully", async () => {
       mockFetch.mockRejectedValue(new Error("Network error"));
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
 
       await expect(
         client.classify("test", { messageCount: 1, hasSystemPrompt: false }),
@@ -100,7 +140,7 @@ describe("OllamaClient", () => {
         })
       );
 
-      const client = new OllamaClient("http://localhost:11434", 10); // 10ms timeout
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434", timeout: 10 }); // 10ms timeout
 
       await expect(
         client.classify("test", { messageCount: 1, hasSystemPrompt: false }),
@@ -113,7 +153,7 @@ describe("OllamaClient", () => {
         json: () => Promise.resolve({ response: "not valid json" }),
       } as Response);
 
-      const client = new OllamaClient("http://localhost:11434");
+      const client = new OllamaClient({ baseUrl: "http://localhost:11434" });
 
       await expect(
         client.classify("test", { messageCount: 1, hasSystemPrompt: false }),

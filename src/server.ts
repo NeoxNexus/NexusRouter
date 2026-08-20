@@ -659,10 +659,15 @@ export async function createServer(
   });
   app.decorate("rawRequestHandler", capturedHandler);
 
-  const ollama = new OllamaClient(config.ollama.baseUrl);
+  const ollama = new OllamaClient({
+    baseUrl: config.ollama.baseUrl,
+    timeout: config.ollama.timeout,
+    model: config.ollama.models.fast,
+  });
   const classifier = new HybridClassifier(ollama, {
     heuristicThreshold: config.router.layers.heuristic.confidenceThreshold,
     aiThreshold: config.router.layers.ai.fallbackConfidence,
+    aiEnabled: config.ollama.enabled,
   });
 
   // Health check

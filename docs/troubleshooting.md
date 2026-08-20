@@ -61,7 +61,7 @@ router:
 
 ### 每个请求都慢几秒才响应
 
-大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。改成：
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama：Layer 2 每次请求要等连接失败或 `ollama.timeout`（默认 800ms）后降级。`enabled: false` 时该层整体跳过，不会向 localhost 发任何请求。改成：
 
 ```yaml
 ollama:

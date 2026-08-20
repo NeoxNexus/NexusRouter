@@ -8,6 +8,11 @@ import {
 export interface HybridConfig {
   heuristicThreshold: number;
   aiThreshold: number;
+  /**
+   * Layer 2（Ollama 本地模型）总开关。false 时整块跳过，不会向
+   * ollama.baseUrl 发任何请求，低置信流量直接落 Layer 3 兜底。
+   */
+  aiEnabled: boolean;
 }
 
 interface RuleResult {
@@ -170,18 +175,20 @@ export class HybridClassifier {
       };
     }
 
-    // Layer 2: AI (Ollama fast model, < 10ms)
-    try {
-      const aiResult = await this.ollama.classify(prompt, context);
-      if (aiResult.confidence >= this.config.aiThreshold) {
-        return {
-          ...aiResult,
-          layer: "ai",
-          reason: "ai-classified",
-        };
+    // Layer 2: AI (Ollama fast model, < 10ms)。aiEnabled === false 时整块跳过。
+    if (this.config.aiEnabled) {
+      try {
+        const aiResult = await this.ollama.classify(prompt, context);
+        if (aiResult.confidence >= this.config.aiThreshold) {
+          return {
+            ...aiResult,
+            layer: "ai",
+            reason: "ai-classified",
+          };
+        }
+      } catch {
+        // Fall through to fallback
       }
-    } catch {
-      // Fall through to fallback
     }
 
     // Layer 3: Fallback —— 拿不准时升一档。代价是非对称的：该弱给强只是
