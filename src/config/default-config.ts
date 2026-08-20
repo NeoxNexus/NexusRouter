@@ -41,17 +41,15 @@ export const DEFAULT_CONFIG_YAML = `router:
 
 providers:
   openai:
-    apiKey: \${OPENAI_API_KEY}
+    # 留空则要求客户端自带 key（Authorization: Bearer <key>）。
+    # 若对接 new-api 等网关，可设 baseUrl 并开启 passthroughApiKey: true。
+    apiKey: \${OPENAI_API_KEY:-}
     maxRetries: 3
-    # 远端多人部署（对接 new-api 等网关）时：
-    # 1. baseUrl 指向网关，例如 baseUrl: https://new-api.example.com/v1
-    # 2. 开启 passthroughApiKey: true，每个用户透传自己的令牌（config 里的 apiKey 可省略）
-    # 注意：开启后用户到 NexusRouter 之间必须走 HTTPS，令牌是真实凭证
   anthropic:
-    apiKey: \${ANTHROPIC_API_KEY}
+    apiKey: \${ANTHROPIC_API_KEY:-}
     maxRetries: 3
   google:
-    apiKey: \${GOOGLE_API_KEY}
+    apiKey: \${GOOGLE_API_KEY:-}
     maxRetries: 3
 
 tiers:
