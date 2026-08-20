@@ -26,6 +26,7 @@ import {
   extractOpenAINonStreamingUsage,
 } from "./adapter/usage-sniffer.js";
 import { logFilePath, ensureLogDir, resolveLogDir } from "./paths.js";
+import { registerDashboardRoutes } from "./dashboard/web.js";
 
 // Fastify only manages the single server it creates. We capture its raw
 // request handler (via serverFactory) so startServer can bind additional
@@ -554,6 +555,14 @@ export async function createServer(
   // Ensure the accounting watcher is released when the server closes.
   app.addHook("onClose", async () => {
     accounting.close();
+  });
+
+  // Optional web dashboard (off by default; opt-in via router.dashboard).
+  registerDashboardRoutes(app, {
+    enabled: config.router.dashboard,
+    logDir: resolveLogDir(),
+    health: () => accounting.health(),
+    baselineMode: accounting.baselineMode,
   });
 
   // ─── Route registration helper ───

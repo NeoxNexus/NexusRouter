@@ -32,11 +32,6 @@ describe("parseArgs", () => {
     expect(args.days).toBeUndefined();
   });
 
-  it("parses dash command", () => {
-    const args = parseArgs(["dash"]);
-    expect(args.dash).toBe(true);
-  });
-
   it("parses port and config options", () => {
     const args = parseArgs(["--port", "9999", "--config", "/tmp/cfg.yaml"]);
     expect(args.port).toBe(9999);
@@ -51,15 +46,16 @@ describe("parseArgs", () => {
 });
 
 describe("printHelp", () => {
-  it("mentions the alt screen and how to exit", () => {
+  it("mentions stats, report and doctor commands", () => {
     const logs: string[] = [];
     vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
       logs.push(args.map(String).join(" "));
     });
     printHelp();
     const output = logs.join("\n");
-    expect(output).toContain("alt screen");
-    expect(output).toContain("Ctrl+C to exit");
+    expect(output).toContain("stats [days]");
+    expect(output).toContain("report [days]");
+    expect(output).toContain("doctor");
     vi.restoreAllMocks();
   });
 });

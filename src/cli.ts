@@ -19,7 +19,6 @@ import { VERSION } from "./version.js";
 import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
-import { runDashboard, runSnapshot } from "./dashboard/lifecycle.js";
 import { pathToFileURL } from "node:url";
 
 /** Human-readable default config path, tuned per OS for the help text. */
@@ -38,7 +37,6 @@ Usage:
   nexusrouter doctor [question]
   nexusrouter stats [days]
   nexusrouter report [days]
-  nexusrouter dash
 
 Options:
   --version, -v     Show version number
@@ -54,7 +52,6 @@ Commands:
   doctor            AI-powered diagnostics
   stats [days]      Show usage statistics (default: 7 days)
   report [days]     Show detailed usage report (default: 7 days)
-  dash              Real-time dashboard (alt screen, Ctrl+C to exit)
 
 Examples:
   # Start server
@@ -68,9 +65,6 @@ Examples:
 
   # Detailed JSON report for the last 7 days
   npx nexusrouter report --json
-
-  # Real-time dashboard (alt screen, Ctrl+C to exit)
-  npx nexusrouter dash
 
 Environment Variables:
   OPENAI_API_KEY      OpenAI API key
@@ -89,7 +83,6 @@ type ParsedArgs = {
   doctorQuestion?: string;
   stats: boolean;
   report: boolean;
-  dash: boolean;
   json: boolean;
   days?: number;
   port?: number;
@@ -104,7 +97,6 @@ export function parseArgs(args: string[]): ParsedArgs {
     doctorQuestion: undefined,
     stats: false,
     report: false,
-    dash: false,
     json: false,
     days: undefined,
     port: undefined,
@@ -138,8 +130,6 @@ export function parseArgs(args: string[]): ParsedArgs {
         result.days = parseInt(next, 10);
         i++;
       }
-    } else if (arg === "dash") {
-      result.dash = true;
     } else if (arg === "--port" && args[i + 1]) {
       result.port = parseInt(args[i + 1], 10);
       i++;
@@ -249,16 +239,6 @@ async function main(): Promise<void> {
   if (args.report) {
     await runReport(args);
     process.exit(0);
-  }
-
-  if (args.dash) {
-    const port = args.port || parseInt(process.env.NEXUSROUTER_PORT || "8402", 10);
-    if (process.stdout.isTTY) {
-      await runDashboard({ port });
-    } else {
-      await runSnapshot({ port });
-      process.exit(0);
-    }
   }
 
   // Start the server

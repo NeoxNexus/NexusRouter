@@ -372,11 +372,12 @@ claude   # 15维分类器自动路由，无需其他配置
 - [x] **6.5** 为 Dashboard 预留数据模型与接口 —— `src/dashboard/` 的 `Tailer` + `Aggregator` 纯函数层 —— ✅ **2026-08-20 完成**
   - `src/dashboard/tailer.ts`：byte offset 增量 tail，`fs.watch(logDir)` + 250ms 轮询兜底；半行残片拼接、跨日切换保留昨日聚合、文件截断/删除时 offset 归零、v1+v2 schema 混读；8 例测试覆盖
   - `src/dashboard/aggregator.ts`：纯滚动窗口聚合，60s 窗口 req/s、p50/p95 上游延迟；`upstream` / `estimated` / `partial` 分离计数不相加；`baselineCostUsd === null` 不当 0 聚合；7 例测试覆盖
-- [x] **6.6** `nexusrouter dash` 控制台实时大屏（方案：[`docs/plans/2026-08-20-live-dashboard-design.md`](docs/plans/2026-08-20-live-dashboard-design.md)）—— ✅ **2026-08-20 完成**
-  - `src/dashboard/render.ts`：纯函数 `renderFrame(state, width, height): string[]`，无终端依赖；宽度自适应（<60 列单列），降级/离线/persist-off 显著标注，底栏常驻 `same-usage-repricing · 近似值` caveat；8 例测试覆盖
-  - `src/dashboard/lifecycle.ts`：独立进程 TUI，alt screen 进出，SIGINT/SIGTERM/exit/uncaughtException 恢复终端；非 TTY 退回 `runSnapshot()` 一次性快照；1Hz 数据刷新 + 2Hz `/health` 轮询解耦；router 零改动
-  - `src/cli.ts` 接入 `dash` 子命令；`src/cli.test.ts` 补 `dash` 解析断言
-  - 明确不做：Web UI、同进程渲染、ink/blessed/React、历史回放、鼠标交互
+- [x] **6.6** `/dashboard` HTML 实时大屏（SSE）—— ✅ **2026-08-20 完成**
+  - `src/dashboard/web.ts`：router 进程内暴露 `/dashboard` 自包含 HTML 页面 + `/dashboard/events` SSE 端点；复用 `tailer.ts` + `aggregator.ts`；无客户端时停止所有循环，对 router 事件循环影响趋近于 0
+  - 配置开关 `router.dashboard`，默认 `false`（opt-in）；router 默认绑回环双栈，不主动暴露到局域网
+  - 前端纯原生 JS + 内嵌 CSS，零前端框架依赖；1s SSE 推送 + `fs.watch` 文件变化即时刷新
+  - `src/cli.ts` 移除 `nexusrouter dash` 终端子命令；TUI 相关 `lifecycle.ts` / `render.ts` 及测试已删除
+  - `src/dashboard/web.test.ts`：3 例测试覆盖关闭 404、HTML 返回、SSE 首帧数据
 
 ---
 
