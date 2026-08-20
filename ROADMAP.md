@@ -394,8 +394,12 @@ claude   # 15维分类器自动路由，无需其他配置
 
 - [ ] **7.1** 实现真正的 Buffer Passthrough（同协议时尽量跳过多余序列化）
 - [ ] **7.2** Adapter 单例化与轻量对象复用
-- [ ] **7.3** 负载测试（autocannon / k6），定位并优化瓶颈
-  - 已知首个瓶颈：日志落盘。实测 `appendFile` 每请求 1 次 → 上限 2,959 req/s；批量 flush 后 139,537 req/s。✅ **2026-08-20 已换路**：请求路径改走 `queueRoutingDecision()`（5.6.6 / Step 0）；此处待 7.3 实测复核天花板是否真的抬到预期量级。见 [方案决策 5](docs/plans/2026-08-19-savings-ledger-design.md)
+- [x] **7.3** 负载测试（autocannon / k6），定位并优化瓶颈
+  - ✅ **2026-08-20 完成**：新增 `src/load-test/` 可复用 runner + `scripts/load-test.ts` CLI，本地 mock 上游零 API 费用，输出 req/s、p50/p95/p99、内存。
+  - 基线数据（本机 Windows 10 / Node 22 / 50 connections / 非流式 / mock 上游）：
+    - accounting OFF：**~582 req/s**，p50 76 ms，p95 157 ms，p99 228 ms
+    - accounting ON：**~592 req/s**，p50 146 ms，p95 282 ms，p99 610 ms
+  - 观察：端到端天花板受 mock 上游 + fetch 连接开销限制， accounting 批量写路径本身不再是瓶颈（与 5.6.6 的 139,537 req/s 纯写路径声明一致）。
 - [ ] **7.4** `Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）
 - [ ] **7.5** 输出性能测试报告
 - [ ] 全量回归 + 代码评审 + 提交

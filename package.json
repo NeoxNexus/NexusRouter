@@ -35,6 +35,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:resilience:errors": "tsx test/resilience-errors.ts",
+    "load-test": "tsx scripts/load-test.ts",
     "test:resilience:stability": "DURATION_MINUTES=5 tsx test/resilience-stability.ts",
     "test:resilience:stability:full": "DURATION_MINUTES=240 tsx test/resilience-stability.ts",
     "test:resilience:lifecycle": "tsx test/resilience-lifecycle.ts",

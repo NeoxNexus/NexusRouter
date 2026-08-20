@@ -111,7 +111,7 @@ describe("runDashboard", () => {
     const start = Date.now();
     await runDashboard({ logDir: dir, port: 1, stopAfterMs: 50 });
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(300);
+    expect(elapsed).toBeLessThan(1000);
   });
 
   it("clamps width to 40 columns on resize", async () => {

@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from "fastify";
+import type { FastifyBaseLogger, FastifyLoggerOptions } from "fastify";
 import { createServer as createHttpServer, type RequestListener, type Server } from "node:http";
 import { loadConfig, getDefaultConfigPath, type Config } from "./config/loader.js";
 import { OllamaClient } from "./ollama/client.js";
@@ -512,6 +513,7 @@ function getDefaultProviderUrl(provider: string): string {
 export async function createServer(
   configPath?: string,
   preloadedConfig?: Config,
+  logger?: FastifyBaseLogger | FastifyLoggerOptions | boolean,
 ): Promise<FastifyInstance> {
   const config = preloadedConfig || (await loadConfig(configPath));
 
@@ -526,7 +528,7 @@ export async function createServer(
   // listeners (multiple loopback addresses) that reuse the same pipeline.
   let capturedHandler!: RequestListener;
   const app = Fastify({
-    logger: true,
+    logger: logger ?? true,
     serverFactory: (handler) => {
       capturedHandler = handler;
       return createHttpServer(handler);
