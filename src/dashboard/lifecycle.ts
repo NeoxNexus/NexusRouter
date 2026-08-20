@@ -18,7 +18,11 @@ export type DashboardOptions = {
   refreshMs?: number;
   healthMs?: number;
   windowSize?: number;
+  /** Internal/test hook: trigger cleanup after N milliseconds. */
+  stopAfterMs?: number;
 };
+
+const MIN_WIDTH = 40;
 
 export type DashboardState = {
   tailer: TailerState;
@@ -107,7 +111,7 @@ export async function runSnapshot(options: DashboardOptions = {}): Promise<void>
   const health = await pollHealth(port);
   if (health) state.router = { ...state.router, ...health };
 
-  const width = process.stdout.columns || 120;
+  const width = Math.max(MIN_WIDTH, process.stdout.columns || 120);
   const height = process.stdout.rows || 24;
   const input = buildRenderInput(state, width, height);
   console.log(renderFrame(input).join("\n"));
@@ -129,12 +133,18 @@ export async function runDashboard(options: DashboardOptions = {}): Promise<void
   process.stdout.write(ALT_SCREEN_ON + HIDE_CURSOR);
 
   let running = true;
-  let width = process.stdout.columns || 120;
+  let width = Math.max(MIN_WIDTH, process.stdout.columns || 120);
   let height = process.stdout.rows || 24;
+
+  let stopResolver: (() => void) | null = null;
+  const stopped = new Promise<void>((resolve) => {
+    stopResolver = resolve;
+  });
 
   const cleanup = (signal?: string) => {
     if (!running) return;
     running = false;
+    stopResolver?.();
     restoreTerminal();
     if (signal) process.exit(0);
   };
@@ -148,7 +158,7 @@ export async function runDashboard(options: DashboardOptions = {}): Promise<void
     process.exit(1);
   });
   process.stdout.on("resize", () => {
-    width = process.stdout.columns || width;
+    width = Math.max(MIN_WIDTH, process.stdout.columns || width);
     height = process.stdout.rows || height;
   });
 
@@ -197,17 +207,13 @@ export async function runDashboard(options: DashboardOptions = {}): Promise<void
   const timer = setInterval(() => void refresh(), refreshMs);
   timer.unref();
 
-  // Keep alive until cleanup.
-  await new Promise<void>((resolve) => {
-    const check = () => {
-      if (!running) {
-        resolve();
-        return;
-      }
-      setTimeout(check, 100).unref();
-    };
-    check();
-  });
+  if (options.stopAfterMs && options.stopAfterMs > 0) {
+    const stopTimer = setTimeout(() => cleanup(), options.stopAfterMs);
+    stopTimer.unref();
+  }
+
+  // Keep alive until cleanup — no busy-wait polling.
+  await stopped;
 
   watcher?.close();
   clearInterval(timer);
