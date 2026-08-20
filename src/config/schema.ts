@@ -76,6 +76,16 @@ export const HintsConfigSchema = z.object({
   thinking: z.enum(["off", "complex", "reasoning"]).default("off"),
 });
 
+export const PriceOverrideSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cacheRead: z.number().optional(),
+  cacheWrite5m: z.number().optional(),
+  cacheWrite1h: z.number().optional(),
+});
+
+export const PriceOverridesSchema = z.record(z.string(), PriceOverrideSchema).default({});
+
 export const AccountingConfigSchema = z.object({
   /** First version ships as experimental, default off (向后兼容红线). */
   enabled: z.boolean().default(false),
@@ -95,6 +105,8 @@ export const AccountingConfigSchema = z.object({
   baseline: z.enum(["requested", "reference", "off"]).default("requested"),
   /** Baseline model when baseline is "reference". */
   referenceModel: z.string().optional(),
+  /** Deployment price overrides for gateway models not in the product registry. */
+  priceOverrides: PriceOverridesSchema.default({}),
   /** Whether to redact prompt content in persisted logs. */
   redactPrompts: z.boolean().default(false),
   /** Streaming usage-sniffer tail window size in bytes. */
@@ -124,3 +136,5 @@ export type OllamaConfig = z.infer<typeof OllamaConfigSchema>;
 export type RouterConfig = z.infer<typeof RouterConfigSchema>;
 export type HintsConfig = z.infer<typeof HintsConfigSchema>;
 export type AccountingConfig = z.infer<typeof AccountingConfigSchema>;
+export type PriceOverride = z.infer<typeof PriceOverrideSchema>;
+export type PriceOverrides = z.infer<typeof PriceOverridesSchema>;

@@ -15,8 +15,16 @@ import {
 import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/types.js";
 import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
-import { queueRoutingDecision, logWriterState, type RoutingLogEntry } from "./logger.js";
+import { queueRoutingDecision, logWriterState, type RoutingLogEntry, type UsageEntryV2 } from "./logger.js";
 import { AccountingSwitch } from "./accounting/switch.js";
+import { costOf, emptyUsage } from "./pricing/price-book.js";
+import { resolveBaseline, type BaselineOptions } from "./accounting/baseline.js";
+import {
+  createUsageSniffer,
+  extractAnthropicNonStreamingUsage,
+  extractOpenAINonStreamingUsage,
+} from "./adapter/usage-sniffer.js";
+import { logFilePath, ensureLogDir, resolveLogDir } from "./paths.js";
 
 // Fastify only manages the single server it creates. We capture its raw
 // request handler (via serverFactory) so startServer can bind additional
@@ -27,9 +35,68 @@ declare module "fastify" {
   }
 }
 
+import type { UsageCapture } from "./adapter/usage-sniffer.js";
+
 // ─── Register adapters once at startup ───
 registerAdapter("anthropic", () => new AnthropicAdapter());
 registerAdapter("openai", () => new OpenAIAdapter());
+
+type RecordUsageInput = {
+  protocol: "anthropic" | "openai";
+  finalModelWithProvider: string;
+  tier: string;
+  requestedModel: string;
+  capture: UsageCapture;
+  latencyMs: number;
+  accounting: AccountingSwitch;
+};
+
+function recordUsage(input: RecordUsageInput): void {
+  if (!input.accounting.persist || !input.accounting.ledgerWriter) return;
+
+  const costUsd = costOf(
+    input.capture.usage,
+    input.finalModelWithProvider,
+    input.accounting.priceOverrides,
+  );
+  const baseline = resolveBaseline(
+    {
+      usage: input.capture.usage,
+      actualModel: input.finalModelWithProvider,
+      actualCostUsd: costUsd,
+      requestedModel: input.requestedModel,
+    },
+    {
+      mode: input.accounting.baselineMode,
+      referenceModel: input.accounting.referenceModel,
+      prices: input.accounting.priceOverrides,
+    },
+  );
+
+  const entry: UsageEntryV2 = {
+    schema: 2,
+    timestamp: new Date().toISOString(),
+    tier: input.tier,
+    model: input.finalModelWithProvider,
+    usage: input.capture.usage,
+    usageSource: input.capture.usageSource,
+    costUsd,
+    baselineModel: baseline.baselineModel,
+    baselineCostUsd: baseline.baselineCostUsd,
+    baselineMethod: baseline.baselineMethod,
+    savedUsd: baseline.savedUsd,
+    truncated: input.capture.truncated,
+    latencyMs: input.latencyMs,
+  };
+
+  try {
+    const dir = resolveLogDir();
+    const date = entry.timestamp.slice(0, 10);
+    input.accounting.ledgerWriter.append(logFilePath("usage", date, dir), JSON.stringify(entry));
+  } catch {
+    // Never break the request flow
+  }
+}
 
 // ─── Unified Request Handler (Pipeline) ───
 //
@@ -49,6 +116,7 @@ async function handleUnified(
   agentPrefix: string | null,
   config: Config,
   classifier: HybridClassifier,
+  accounting: AccountingSwitch,
 ) {
   const adapter = createAdapter(protocol);
   const profile = resolveProfile(agentPrefix, protocol);
@@ -181,6 +249,10 @@ async function handleUnified(
   const parts = targetModel.split("/");
   let providerName: string;
 
+  // Preserve the provider/model form for pricing and baseline accounting before
+  // stripping the prefix for upstream forwarding.
+  const finalModelWithProvider = targetModel;
+
   if (parts.length >= 2) {
     // Explicit provider prefix: e.g. "openai/gpt-4o"
     providerName = parts[0];
@@ -270,6 +342,33 @@ async function handleUnified(
   }
 
   // Step 6: Stream or return
+  let parsedBody: unknown;
+  if (!result.isStream || typeof result.body === "string") {
+    const bodyStr = result.body as string;
+    try {
+      parsedBody = JSON.parse(bodyStr);
+    } catch {
+      parsedBody = undefined;
+    }
+  }
+
+  // Capture usage for non-streaming responses while the body is already parsed.
+  if (!result.isStream && accounting.enabled && accounting.captureNonStreaming) {
+    const capture =
+      protocol === "anthropic"
+        ? extractAnthropicNonStreamingUsage(parsedBody)
+        : extractOpenAINonStreamingUsage(parsedBody);
+    recordUsage({
+      protocol,
+      finalModelWithProvider,
+      tier: routingLog?.finalTier ?? "DIRECT",
+      requestedModel: unified.model || "",
+      capture,
+      latencyMs: Date.now() - startedAt,
+      accounting,
+    });
+  }
+
   if (result.isStream && typeof result.body !== "string") {
     reply.raw.writeHead(result.status, {
       "Content-Type": "text/event-stream",
@@ -277,25 +376,44 @@ async function handleUnified(
       Connection: "keep-alive",
     });
 
+    const sniffer = accounting.captureStreaming
+      ? createUsageSniffer(protocol, accounting.tailWindowBytes)
+      : null;
     const reader = result.body.getReader();
+    let truncated = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        sniffer?.push(value);
         reply.raw.write(value);
       }
     } catch (streamError) {
       req.log.error({ err: streamError }, "Stream read error from upstream");
+      truncated = true;
     } finally {
       reader.releaseLock();
       reply.raw.end();
+    }
+
+    if (accounting.enabled && sniffer) {
+      const capture = sniffer.finish(truncated);
+      recordUsage({
+        protocol,
+        finalModelWithProvider,
+        tier: routingLog?.finalTier ?? "DIRECT",
+        requestedModel: unified.model || "",
+        capture,
+        latencyMs: Date.now() - startedAt,
+        accounting,
+      });
     }
     return;
   }
 
   const bodyStr = result.body as string;
   try {
-    return reply.status(result.status).send(JSON.parse(bodyStr));
+    return reply.status(result.status).send(parsedBody ?? bodyStr);
   } catch {
     return reply.status(result.status).send(bodyStr);
   }
@@ -441,14 +559,14 @@ export async function createServer(
     // Anthropic Messages API path
     if (protocol === "anthropic") {
       app.post(`${prefix}/v1/messages`, async (req, reply) => {
-        return handleUnified(req, reply, "anthropic", agentPrefix, config, classifier);
+        return handleUnified(req, reply, "anthropic", agentPrefix, config, classifier, accounting);
       });
     }
 
     // OpenAI Chat Completions path
     if (protocol === "openai") {
       app.post(`${prefix}/v1/chat/completions`, async (req, reply) => {
-        return handleUnified(req, reply, "openai", agentPrefix, config, classifier);
+        return handleUnified(req, reply, "openai", agentPrefix, config, classifier, accounting);
       });
     }
   };

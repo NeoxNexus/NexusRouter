@@ -109,6 +109,11 @@ export class AccountingSwitch {
     return this.config.redactPrompts;
   }
 
+  /** Deployment price overrides for gateway models. */
+  get priceOverrides(): Record<string, import("../config/schema.js").PriceOverride | undefined> {
+    return this.config.priceOverrides;
+  }
+
   /** Tail-window size in bytes. */
   get tailWindowBytes(): number {
     return this.config.tailWindowBytes;

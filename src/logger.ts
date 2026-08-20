@@ -19,7 +19,9 @@
 import { appendFile } from "node:fs/promises";
 import { ensureLogDir, logFilePath, resolveLogDir } from "./paths.js";
 import { LedgerWriter } from "./accounting/ledger-writer.js";
+import type { TokenUsage } from "./pricing/price-book.js";
 
+/** @deprecated Legacy v1 schema. Kept for backward-compatible reads. */
 export type UsageEntry = {
   timestamp: string;
   model: string;
@@ -34,6 +36,30 @@ export type UsageEntry = {
   partnerId?: string;
   /** Partner service name (e.g., "AttentionVC") — only set for partner API calls */
   service?: string;
+};
+
+/** Savings Ledger v2 usage entry. `schema: 2` is the discriminator. */
+export type UsageEntryV2 = {
+  schema: 2;
+  timestamp: string;
+  /** Tier the router chose (SIMPLE / MEDIUM / COMPLEX / REASONING / DIRECT). */
+  tier: string;
+  /** Model that actually served the request, provider prefix included. */
+  model: string;
+  usage: TokenUsage;
+  usageSource: "upstream" | "estimated" | "partial";
+  /** Actual cost in USD, or null when the model's price is unknown. */
+  costUsd: number | null;
+  /** Counterfactual model, or null when no baseline was computed. */
+  baselineModel: string | null;
+  /** Counterfactual cost, or null when unpriced or mode off. */
+  baselineCostUsd: number | null;
+  baselineMethod: "same-usage-repricing" | "none";
+  /** baseline − actual; null when either side is unknown. */
+  savedUsd: number | null;
+  /** True when the client aborted or the stream errored before the end. */
+  truncated?: boolean;
+  latencyMs: number;
 };
 
 const PROMPT_PREVIEW_MAX = 200;

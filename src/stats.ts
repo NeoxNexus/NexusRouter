@@ -8,9 +8,22 @@
 import { readdir } from "node:fs/promises";
 import { readTextFile } from "./fs-read.js";
 import { join } from "node:path";
-import type { UsageEntry } from "./logger.js";
+import type { UsageEntry, UsageEntryV2 } from "./logger.js";
 import { resolveLogDir } from "./paths.js";
 import { VERSION } from "./version.js";
+
+/** Internal union used by aggregation. Nulls preserve the "unknown" semantics. */
+type ParsedUsageEntry = {
+  timestamp: string;
+  model: string;
+  tier: string;
+  cost: number | null;
+  baselineCost: number | null;
+  savings: number | null;
+  latencyMs: number;
+  usageSource?: "upstream" | "estimated" | "partial";
+  truncated?: boolean;
+};
 
 export type DailyStats = {
   date: string;
@@ -19,6 +32,8 @@ export type DailyStats = {
   totalBaselineCost: number;
   totalSavings: number;
   avgLatencyMs: number;
+  upstreamRequests: number;
+  estimatedRequests: number;
   byTier: Record<string, { count: number; cost: number }>;
   byModel: Record<string, { count: number; cost: number }>;
 };
@@ -35,30 +50,48 @@ export type AggregatedStats = {
   byTier: Record<string, { count: number; cost: number; percentage: number }>;
   byModel: Record<string, { count: number; cost: number; percentage: number }>;
   dailyBreakdown: DailyStats[];
-  entriesWithBaseline: number; // Entries with valid baseline tracking
+  entriesWithBaseline: number;
+  upstreamRequests: number;
+  estimatedRequests: number;
 };
 
 /**
- * Parse a JSONL log file into usage entries.
- * Handles both old format (without tier/baselineCost) and new format.
+ * Parse a JSONL usage log file.
+ * Handles v1 (schema field missing), v2 (`schema: 2`), and malformed lines.
  */
-async function parseLogFile(filePath: string): Promise<UsageEntry[]> {
+async function parseLogFile(filePath: string): Promise<ParsedUsageEntry[]> {
   try {
     const content = await readTextFile(filePath);
     const lines = content.trim().split("\n").filter(Boolean);
-    const entries: UsageEntry[] = [];
+    const entries: ParsedUsageEntry[] = [];
     for (const line of lines) {
       try {
-        const entry = JSON.parse(line) as Partial<UsageEntry>;
-        entries.push({
-          timestamp: entry.timestamp || new Date().toISOString(),
-          model: entry.model || "unknown",
-          tier: entry.tier || "UNKNOWN",
-          cost: entry.cost || 0,
-          baselineCost: entry.baselineCost || entry.cost || 0,
-          savings: entry.savings || 0,
-          latencyMs: entry.latencyMs || 0,
-        });
+        const raw = JSON.parse(line) as Partial<UsageEntry> & Partial<UsageEntryV2>;
+        if (raw.schema === 2) {
+          const v2 = raw as UsageEntryV2;
+          entries.push({
+            timestamp: v2.timestamp || new Date().toISOString(),
+            model: v2.model || "unknown",
+            tier: v2.tier || "UNKNOWN",
+            cost: v2.costUsd ?? null,
+            baselineCost: v2.baselineCostUsd ?? null,
+            savings: v2.savedUsd ?? null,
+            latencyMs: v2.latencyMs || 0,
+            usageSource: v2.usageSource,
+            truncated: v2.truncated,
+          });
+        } else {
+          const v1 = raw as UsageEntry;
+          entries.push({
+            timestamp: v1.timestamp || new Date().toISOString(),
+            model: v1.model || "unknown",
+            tier: v1.tier || "UNKNOWN",
+            cost: typeof v1.cost === "number" ? v1.cost : null,
+            baselineCost: typeof v1.baselineCost === "number" ? v1.baselineCost : null,
+            savings: typeof v1.savings === "number" ? v1.savings : null,
+            latencyMs: v1.latencyMs || 0,
+          });
+        }
       } catch {
         // Skip malformed lines, keep valid ones
       }
@@ -73,7 +106,7 @@ async function parseLogFile(filePath: string): Promise<UsageEntry[]> {
  * Get list of available log files sorted by date (newest first).
  *
  * The directory is resolved per call (defect 11): freezing it in a module const
- * made the read side ignore `NEXUSROUTER_LOG_DIR` while the writer honored it,
+ * made the read side ignore NEXUSROUTER_LOG_DIR while the writer honored it,
  * so reports silently showed zeros.
  */
 async function getLogFiles(dir: string): Promise<string[]> {
@@ -88,30 +121,39 @@ async function getLogFiles(dir: string): Promise<string[]> {
   }
 }
 
+function coalesce(n: number | null | undefined): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Aggregate stats for a single day.
  */
-function aggregateDay(date: string, entries: UsageEntry[]): DailyStats {
+function aggregateDay(date: string, entries: ParsedUsageEntry[]): DailyStats {
   const byTier: Record<string, { count: number; cost: number }> = {};
   const byModel: Record<string, { count: number; cost: number }> = {};
   let totalLatency = 0;
+  let upstreamRequests = 0;
+  let estimatedRequests = 0;
 
   for (const entry of entries) {
-    // By tier
+    const cost = coalesce(entry.cost);
+
     if (!byTier[entry.tier]) byTier[entry.tier] = { count: 0, cost: 0 };
     byTier[entry.tier].count++;
-    byTier[entry.tier].cost += entry.cost;
+    byTier[entry.tier].cost += cost;
 
-    // By model
     if (!byModel[entry.model]) byModel[entry.model] = { count: 0, cost: 0 };
     byModel[entry.model].count++;
-    byModel[entry.model].cost += entry.cost;
+    byModel[entry.model].cost += cost;
 
     totalLatency += entry.latencyMs;
+
+    if (entry.usageSource === "upstream") upstreamRequests++;
+    else if (entry.usageSource === "estimated") estimatedRequests++;
   }
 
-  const totalCost = entries.reduce((sum, e) => sum + e.cost, 0);
-  const totalBaselineCost = entries.reduce((sum, e) => sum + e.baselineCost, 0);
+  const totalCost = entries.reduce((sum, e) => sum + coalesce(e.cost), 0);
+  const totalBaselineCost = entries.reduce((sum, e) => sum + coalesce(e.baselineCost), 0);
 
   return {
     date,
@@ -120,6 +162,8 @@ function aggregateDay(date: string, entries: UsageEntry[]): DailyStats {
     totalBaselineCost,
     totalSavings: totalBaselineCost - totalCost,
     avgLatencyMs: entries.length > 0 ? totalLatency / entries.length : 0,
+    upstreamRequests,
+    estimatedRequests,
     byTier,
     byModel,
   };
@@ -140,6 +184,9 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
   let totalCost = 0;
   let totalBaselineCost = 0;
   let totalLatency = 0;
+  let upstreamRequests = 0;
+  let estimatedRequests = 0;
+  let entriesWithBaseline = 0;
 
   for (const file of filesToRead) {
     const date = file.replace("usage-", "").replace(".jsonl", "");
@@ -155,6 +202,13 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
     totalCost += dayStats.totalCost;
     totalBaselineCost += dayStats.totalBaselineCost;
     totalLatency += dayStats.avgLatencyMs * dayStats.totalRequests;
+    upstreamRequests += dayStats.upstreamRequests;
+    estimatedRequests += dayStats.estimatedRequests;
+
+    // Count entries that actually have a measured baseline.
+    for (const e of entries) {
+      if (e.baselineCost !== null) entriesWithBaseline++;
+    }
 
     // Merge tier stats
     for (const [tier, stats] of Object.entries(dayStats.byTier)) {
@@ -193,14 +247,6 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
   const totalSavings = totalBaselineCost - totalCost;
   const savingsPercentage = totalBaselineCost > 0 ? (totalSavings / totalBaselineCost) * 100 : 0;
 
-  // Count entries with valid baseline tracking (baseline != cost means tracking was active)
-  let entriesWithBaseline = 0;
-  for (const day of dailyBreakdown) {
-    if (day.totalBaselineCost !== day.totalCost) {
-      entriesWithBaseline += day.totalRequests;
-    }
-  }
-
   return {
     period: days === 1 ? "today" : `last ${days} days`,
     totalRequests,
@@ -213,7 +259,9 @@ export async function getStats(days: number = 7): Promise<AggregatedStats> {
     byTier: byTierWithPercentage,
     byModel: byModelWithPercentage,
     dailyBreakdown: dailyBreakdown.reverse(), // Oldest first for charts
-    entriesWithBaseline, // How many entries have valid baseline tracking
+    entriesWithBaseline,
+    upstreamRequests,
+    estimatedRequests,
   };
 }
 
