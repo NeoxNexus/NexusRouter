@@ -289,7 +289,7 @@ export function formatStatsAscii(stats: AggregatedStats): string {
   lines.push(`║  Period: ${stats.period.padEnd(49)}║`);
   lines.push(`║  Total Requests: ${stats.totalRequests.toString().padEnd(41)}║`);
   lines.push(`║  Total Cost: $${stats.totalCost.toFixed(4).padEnd(43)}║`);
-  lines.push(`║  Baseline Cost (Opus 4.5): $${stats.totalBaselineCost.toFixed(4).padEnd(30)}║`);
+  lines.push(`║  Baseline Cost: $${stats.totalBaselineCost.toFixed(4).padEnd(43)}║`);
 
   // Usage-source breakdown
   lines.push("╠════════════════════════════════════════════════════════════╣");

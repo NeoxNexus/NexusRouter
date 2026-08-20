@@ -19,6 +19,7 @@ import { VERSION } from "./version.js";
 import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
+import { pathToFileURL } from "node:url";
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -288,7 +289,9 @@ async function main(): Promise<void> {
   await new Promise(() => {});
 }
 
-main().catch((err) => {
-  console.error(`[NexusRouter] Fatal error: ${err.message}`);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((err) => {
+    console.error(`[NexusRouter] Fatal error: ${err.message}`);
+    process.exit(1);
+  });
+}

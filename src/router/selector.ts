@@ -36,30 +36,13 @@ export function selectModel(
 ): RoutingDecision {
   const tierConfig = tierConfigs[tier];
   const model = tierConfig.primary;
-  const pricing = modelPricing.get(model);
-
-  // Defensive: guard against undefined price fields (not just undefined pricing)
-  const inputPrice = pricing?.inputPrice ?? 0;
-  const outputPrice = pricing?.outputPrice ?? 0;
-  const inputCost = (estimatedInputTokens / 1_000_000) * inputPrice;
-  const outputCost = (maxOutputTokens / 1_000_000) * outputPrice;
-  const costEstimate = inputCost + outputCost;
-
-  // Baseline: what Claude Opus 4.5 would cost (the premium reference)
-  const opusPricing = modelPricing.get(BASELINE_MODEL_ID);
-  const opusInputPrice = opusPricing?.inputPrice ?? BASELINE_INPUT_PRICE;
-  const opusOutputPrice = opusPricing?.outputPrice ?? BASELINE_OUTPUT_PRICE;
-  const baselineInput = (estimatedInputTokens / 1_000_000) * opusInputPrice;
-  const baselineOutput = (maxOutputTokens / 1_000_000) * opusOutputPrice;
-  const baselineCost = baselineInput + baselineOutput;
-
-  // Premium profile doesn't calculate savings (it's about quality, not cost)
-  const savings =
-    routingProfile === "premium"
-      ? 0
-      : baselineCost > 0
-        ? Math.max(0, (baselineCost - costEstimate) / baselineCost)
-        : 0;
+  const { costEstimate, baselineCost, savings } = calculateModelCost(
+    model,
+    modelPricing,
+    estimatedInputTokens,
+    maxOutputTokens,
+    routingProfile,
+  );
 
   return {
     model,
@@ -102,7 +85,7 @@ export function calculateModelCost(
   const outputCost = (maxOutputTokens / 1_000_000) * outputPrice;
   const costEstimate = inputCost + outputCost;
 
-  // Baseline: what Claude Opus 4.5 would cost (the premium reference)
+  // Baseline: what the reference model would cost (the premium reference)
   const opusPricing = modelPricing.get(BASELINE_MODEL_ID);
   const opusInputPrice = opusPricing?.inputPrice ?? BASELINE_INPUT_PRICE;
   const opusOutputPrice = opusPricing?.outputPrice ?? BASELINE_OUTPUT_PRICE;
