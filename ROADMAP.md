@@ -271,6 +271,7 @@ claude   # 15维分类器自动路由，无需其他配置
 > **关联文档**:
 > `docs/reviews/2026-03-08-project-summary.md`
 > `docs/plans/2026-03-08-architecture-consolidation-plan.md`
+> `docs/plans/2026-08-19-savings-ledger-design.md`（5.6 省钱记账体系设计）
 
 ### 目标
 
@@ -285,7 +286,25 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **5.3** 接入 `ResponseCache`
 - [ ] **5.4** 接入 `SessionStore` / `SessionJournal`
 - [ ] **5.5** 接入 `Compression`
-- [ ] **5.6** 接入 `Logger` / `Stats` / `Report`
+- [ ] **5.6** 接入 `Logger` / `Stats` / `Report` —— **Savings Ledger 省钱记账体系**（方案：[`docs/plans/2026-08-19-savings-ledger-design.md`](docs/plans/2026-08-19-savings-ledger-design.md)）
+  - 🔴 **硬前置**：Phase 3.3 未完成前不可施工。四档模型（`claude-opus-*`）未注册进 `models.ts`，成本计算 100% 依赖该价格表，此时接线记出来的账全是 `0` / `null`
+  - 现状审计：`logUsage()` 零调用点、`stats.ts`/`report.ts` 无 CLI 入口、上游 `usage` 从不解析、美元数字基于 `maxTokens` 虚构、`savings` 字段单位一名两义（共 10 项缺陷，详见方案第 2 节）
+  - 🔴 **补充缺陷 11**（2026-08-20 核实）：`stats.ts:15` 硬编码 `LOG_DIR = ~/.nexusrouter/logs`，**忽略 `NEXUSROUTER_LOG_DIR`**，而 `logger.ts:38` 认这个变量 → 设了环境变量（容器/自定义日志目录）后写侧写 A、读侧读 B，报表与大屏永远 0 且无任何报错。建议抽 `paths.ts` 统一解析（顺带处理配置目录 `~/.nexus-router/` 与日志目录 `~/.nexusrouter/` 的命名不一致）
+  - [ ] **5.6.1** `src/pricing/` 分档定价（in / out / cacheRead / cacheWrite5m / cacheWrite1h），未知模型返回 `null` 而非 `0`
+  - [ ] **5.6.2** `src/accounting/` `BaselineResolver` 策略：`requested`（默认，用客户端实际请求的模型）/ `reference` / `off`
+  - [ ] **5.6.3** `src/adapter/` usage 捕获：非流式复用既有 `JSON.parse`（+0.0001ms）；流式用 **4KB 预分配环形尾窗**，写法锁定 `Uint8Array` + `TypedArray.set`（实测 43-57 ns/chunk；改用 `Buffer.concat` 累积会慢 **1100×**，评审红线）
+  - [ ] **5.6.4** 日志 schema v2（`costUsd` / `baselineCostUsd` / `savedUsd` / `usageSource` / `truncated`），`parseLogFile` 保留 v1 兼容分支
+  - [ ] **5.6.5** `cli.ts` 补 `stats` / `report` 子命令，报表区分「真实 usage」与「估算」口径（实时大屏 `dash` 子命令同批接入，见 6.6）
+  - [ ] **5.6.6** `LedgerWriter` 批量 flush（满 64 行 / 200ms / 退出时）—— 🔴 **不做则吞吐腰斩**：每请求 2 次 `appendFile` 实测把上限从 2,959 压到 1,522 req/s，批量后 139,537 req/s（70×）。**此项不依赖 3.3，可作为 Step 0 独立先行**，同时解决现存 `logRoutingDecision` 的落盘天花板
+  - [ ] **5.6.7** 🔴 **分层熔断开关（必须先于 5.6.3 接线交付）**——「发现性能问题能及时关闭」的落地（方案决策 6）
+    - **L0 分粒度配置**：`accounting.enabled` / `captureNonStreaming`（+0.1 µs）/ `captureStreaming`（+22 µs，出问题第一个关）/ `persist`。三条路径成本差 **220×**，禁止一个总布尔一刀切
+    - **L1 热切换**：`fs.watch(config.yaml)` + 200ms debounce，**仅**热更新 `accounting.*` 子树（现状 `loadConfig()` 只在启动调用一次，改配置必须重启，不满足「及时」）。否决 SIGHUP（**win32 不支持**，本项目主平台）与新增 HTTP 管理端点（流量咽喉扩大攻击面）
+    - **L2 自动降级**：只在 I/O 侧做（磁盘停顿无界），触发用零成本的队列 `length` 比较：连续 `degradeAfterOverflows` 次触顶 → `persist` 自动转 false，WARN 一次，**单向不自动恢复**。CPU 侧明确不做自测量熔断（`hrtime` 采样开销接近被测对象）
+    - **L3 可见性**：`/health` 扩展 `accounting: { enabled, captureStreaming, persist, degraded, degradedReason }`；`nexus stats` 报表标注该时段是否降级过。🔒 `/health` 目前**无鉴权**，该段会带出成本口径与开关状态，故须**仅对回环来源返回**或配置显式 opt-in（默认只绑回环双栈 `c2bf803`，但用户可显式配 `hosts` 暴露）
+    - **首版按 experimental 交付、`enabled: false` 默认关闭**（对应本 Phase 验收标准「各能力标注为 enabled / optional / experimental」），Phase 7.3 压测通过后再翻默认值；`accounting` 段缺失等价 `enabled: false`，老配置零改动可用（向后兼容红线）
+    - 实测：关闭后残留开销 **低于测量噪声（±5 µs）**，故 `sniffer?.push()` 一个可选链即可，不写双循环体
+  - 性能实测基线：热路径净增 **+0.046 ms/请求**（典型 CC 回答 800 chunk），每连接常驻 **~3 KB**，事件循环延迟 avg 0.006ms 不变
+  - 施工顺序（方案第 9 节）：Step 0（5.6.6，不依赖 3.3）→ Step 1（5.6.1/5.6.2 纯函数）→ **Step 2（5.6.7 开关骨架，不依赖 3.3）→ Step 3（5.6.3 接线）** → Step 4（5.6.5 CLI）→ Step 5（清理缺陷 7/9）。**开关必须先于接线**：先接线后补开关等于没刹车先踩油门，届时唯一手段是回滚代码而非改配置
 - [ ] **5.7** 补齐集成测试与功能文档
 - [ ] 全量回归 + 代码评审 + 提交
 
@@ -302,12 +321,14 @@ claude   # 15维分类器自动路由，无需其他配置
 ## 🔲 Phase 6 — 可观测性
 
 > **预计时长**: ~7 天
+> **关联文档**：`docs/plans/2026-08-20-live-dashboard-design.md`（6.5/6.6 控制台实时大屏设计）
 
 ### 目标
 
 - 结构化路由决策日志（Tier / Layer / Confidence / AgentProfile / 成本估算）
 - Prometheus `/metrics` 端点
 - Dashboard 所需的数据基线与调试端点
+- **控制台实时大屏**：终端内实时查看 tier 分布、真实成本与省下来的钱
 
 ### 关键任务
 
@@ -315,7 +336,20 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **6.2** `x-nexusrouter-*` 响应头完善（成本估算、provider 信息）
 - [ ] **6.3** Prometheus metrics exporter（请求计数/延迟/tier 分布）
 - [ ] **6.4** 补齐 `/metrics` / debug 端点
-- [ ] **6.5** 为 Dashboard 预留数据模型与接口
+  - 可选 `GET /internal/stats`（供 `persist: false` 下的实时数值）：**只读 + 回环 only + 显式 opt-in + 默认关闭**，三条缺一不可
+- [ ] **6.5** 为 Dashboard 预留数据模型与接口 —— `src/dashboard/` 的 `Tailer` + `Aggregator` 纯函数层
+  - **增量 tail（byte offset）**，🔴 **禁止复用 `getStats()`**：它每次全量重读重解析整天文件，1Hz × 10万行/天 = 每分钟解析 600 万行，**大屏会比被观测的记账贵三个数量级**
+  - 边界：半行残片拼接、跨日切换保留昨日聚合、文件被截断/删除（`size < offset`）时 offset 归零、v1+v2 schema 混读
+  - 口径：`upstream` / `estimated` 分离计数不相加；`baselineCostUsd === null` 不当 0 聚合
+- [ ] **6.6** `nexusrouter dash` 控制台实时大屏（方案：[`docs/plans/2026-08-20-live-dashboard-design.md`](docs/plans/2026-08-20-live-dashboard-design.md)）
+  - 🔴 **硬前置**：① Phase 5.6 Savings Ledger 落地（否则大屏实时放大缺陷 4 的虚构美元）；② 修缺陷 11（见 5.6 现状审计补充）
+  - **独立进程**，🔴 **绝不与 router 同进程渲染** —— 1Hz 全帧重绘放进流量咽喉的事件循环 = 给代理延迟加周期性抖动；对 router 的开销必须为 0
+  - **零新依赖手写 ANSI**（否决 `ink`（拖进 React，+2MB 量级）与 `blessed`（久未维护）；3 个运行时依赖是产品资产）
+  - 终端接管四要点：alt screen 进出且 `SIGINT`/`SIGTERM`/`exit`/`uncaughtException` **必须恢复**（`\x1b[?1049l` + `\x1b[?25h`）；**非 TTY 退回一次性快照**；按 `stdout.columns` 自适应 + `SIGWINCH` 重排；逐行 `\x1b[K` 清行防闪烁
+  - **可测化红线**：渲染必须是纯函数 `renderFrame(state, width, height): string[]`，无终端亦可断言（否则 TUI 无法 TDD）
+  - 开关状态从 `/health` 读（每 2s，与 1s 数据刷新解耦）；`persist: false` / 已降级 / router 离线时**显著标注，不显示 $0.0000**
+  - 底栏常驻 `same-usage-repricing · 近似值`：屏幕越好看越要钉住这句 caveat
+  - 明确不做：Web UI（图形化交给 6.3 的 Prometheus + Grafana）、历史回放、鼠标交互
 - [ ] 全量回归 + 代码评审 + 提交
 
 ---
@@ -335,6 +369,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **7.1** 实现真正的 Buffer Passthrough（同协议时尽量跳过多余序列化）
 - [ ] **7.2** Adapter 单例化与轻量对象复用
 - [ ] **7.3** 负载测试（autocannon / k6），定位并优化瓶颈
+  - 已知首个瓶颈：日志落盘。实测 `appendFile` 每请求 1 次 → 上限 2,959 req/s（**现状即如此**）；批量 flush 后 139,537 req/s。见 5.6.6 / [方案决策 5](docs/plans/2026-08-19-savings-ledger-design.md)
 - [ ] **7.4** `Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）
 - [ ] **7.5** 输出性能测试报告
 - [ ] 全量回归 + 代码评审 + 提交
