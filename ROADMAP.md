@@ -311,13 +311,13 @@ claude   # 15维分类器自动路由，无需其他配置
     - 退出兜底：`cli.ts` 的 SIGINT/SIGTERM 处理器 `await flushLogs()`，另注册 `process.on("exit")` → `flushLogsSync()`。**`LedgerWriter` 自身不注册任何信号监听器** —— 注册 SIGINT 会抑制 Node 默认退出行为，作为库被引用时会吃掉宿主的 Ctrl+C
     - 定时器 `unref()`（测试用 `timerHasRef()` 断言为 false）；磁盘故障时吞错 + 丢批（不重试，避免堆内存无界增长）+ 计数 `writeFailures`；连续触顶 3 次单向降级并 WARN 一次
     - 顺带交付 5.6.7 的 **L3 一角**：`/health` 已返回 `ledger: { pending, droppedLines, writeFailures, degraded, degradedReason }`，`accounting.*` 开关字段待 Step 2 补齐
-  - [ ] **5.6.7** 🔴 **分层熔断开关（必须先于 5.6.3 接线交付）**——「发现性能问题能及时关闭」的落地（方案决策 6）
-    - **L0 分粒度配置**：`accounting.enabled` / `captureNonStreaming`（+0.1 µs）/ `captureStreaming`（+22 µs，出问题第一个关）/ `persist`。三条路径成本差 **220×**，禁止一个总布尔一刀切
-    - **L1 热切换**：`fs.watch(config.yaml)` + 200ms debounce，**仅**热更新 `accounting.*` 子树（现状 `loadConfig()` 只在启动调用一次，改配置必须重启，不满足「及时」）。否决 SIGHUP（**win32 不支持**，本项目主平台）与新增 HTTP 管理端点（流量咽喉扩大攻击面）
-    - **L2 自动降级**：只在 I/O 侧做（磁盘停顿无界），触发用零成本的队列 `length` 比较：连续 `degradeAfterOverflows` 次触顶 → `persist` 自动转 false，WARN 一次，**单向不自动恢复**。CPU 侧明确不做自测量熔断（`hrtime` 采样开销接近被测对象）
-    - **L3 可见性**：`/health` 扩展 `accounting: { enabled, captureStreaming, persist, degraded, degradedReason }`；`nexus stats` 报表标注该时段是否降级过。🔒 `/health` 目前**无鉴权**，该段会带出成本口径与开关状态，故须**仅对回环来源返回**或配置显式 opt-in（默认只绑回环双栈 `c2bf803`，但用户可显式配 `hosts` 暴露）
-    - **首版按 experimental 交付、`enabled: false` 默认关闭**（对应本 Phase 验收标准「各能力标注为 enabled / optional / experimental」），Phase 7.3 压测通过后再翻默认值；`accounting` 段缺失等价 `enabled: false`，老配置零改动可用（向后兼容红线）
-    - 实测：关闭后残留开销 **低于测量噪声（±5 µs）**，故 `sniffer?.push()` 一个可选链即可，不写双循环体
+  - [x] **5.6.7** 🔴 **分层熔断开关（必须先于 5.6.3 接线交付）**——「发现性能问题能及时关闭」的落地（方案决策 6）—— ✅ **2026-08-20 完成（Step 2）**
+    - `src/config/schema.ts` 新增 `AccountingConfigSchema`，整段缺失等价 `enabled: false`，所有字段带向后兼容默认值（首版 `enabled: false` experimental 默认关闭）
+    - `src/accounting/switch.ts` 运行时开关：`enabled` / `captureNonStreaming` / `captureStreaming` / `persist`；`enabled: false` 时不创建 `LedgerWriter`、不实例化流式嗅探窗、不产生文件
+    - L1 热切换：`fs.watch(config.yaml)` + 200 ms debounce，**仅**解析并热重载 `accounting.*` 子树，非法 YAML / schema 失败时保留旧配置继续服务，不影响进行中的流
+    - L2 自动降级：复用 `LedgerWriter` 已有的连续触顶单向降级（`persist` 自动 false，不自动恢复，只 WARN 一次）
+    - L3 可见性：`/health` 返回 `accounting: { enabled, captureNonStreaming, captureStreaming, persist, degraded, degradedReason }`；`accounting.close()` 在 Fastify `onClose` 钩子中释放 watcher 并刷盘
+    - 新增 `src/accounting/switch.test.ts` 13 例覆盖 L0-L3；`npm test` 全绿 501/501
   - 性能实测基线：热路径净增 **+0.046 ms/请求**（典型 CC 回答 800 chunk），每连接常驻 **~3 KB**，事件循环延迟 avg 0.006ms 不变
   - 施工顺序（方案第 9 节）：~~Step 0（5.6.6，不依赖 3.3）~~ ✅ → ~~Step 1（5.6.1/5.6.2 纯函数）~~ ✅ → **Step 2（5.6.7 开关骨架，不依赖 3.3）→ Step 3（5.6.3 接线）** → Step 4（5.6.5 CLI）→ Step 5（清理缺陷 7/9）。**开关必须先于接线**：先接线后补开关等于没刹车先踩油门，届时唯一手段是回滚代码而非改配置
   - 📌 **顺带修掉一处红灯**（2026-08-20）：`default-config.test.ts` 的「内嵌模板与仓库根 `config.yaml` 字节相同」漂移守卫自 `c3dfe00` 起就是红的，且**断言的不变式本身是错的** —— 仓库根 `config.yaml` 是维护者的实际部署配置（钉死某网关 `baseUrl`、`passthroughApiKey: true`、四档 opus），若真拿它当新用户默认模板，等于给每个新装用户硬编码第三方网关并默认打开凭证透传。已改为**三条真正有意义的守卫**：模板过真实 `ConfigSchema` 校验、顶层配置段覆盖仓库 config 所需段（`hints` 可选）、`router.hosts` 必须仍是回环双栈（`c2bf803` 的回归守卫）

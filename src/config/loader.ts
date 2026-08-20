@@ -68,6 +68,8 @@ function resolveEnvVars(obj: unknown): unknown {
   return obj;
 }
 
+export { resolveEnvVars };
+
 export async function loadConfig(configPath?: string): Promise<Config> {
   const pathToLoad = configPath || getDefaultConfigPath();
 

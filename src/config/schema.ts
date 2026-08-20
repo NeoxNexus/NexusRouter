@@ -76,6 +76,35 @@ export const HintsConfigSchema = z.object({
   thinking: z.enum(["off", "complex", "reasoning"]).default("off"),
 });
 
+export const AccountingConfigSchema = z.object({
+  /** First version ships as experimental, default off (向后兼容红线). */
+  enabled: z.boolean().default(false),
+  /** +0.1 µs — almost no reason to turn off. */
+  captureNonStreaming: z.boolean().default(true),
+  /** +22 µs — the first switch to flip if streaming path regresses. */
+  captureStreaming: z.boolean().default(true),
+  /** Persist to disk; when false, only response headers / in-memory stats remain. */
+  persist: z.boolean().default(true),
+  /** fs.watch(config.yaml) with 200 ms debounce, only accounting.* subtree. */
+  hotReload: z.boolean().default(true),
+  /** Queue ceiling; oldest lines dropped past it. */
+  maxQueueLines: z.number().default(10_000),
+  /** Consecutive overflows before persistence degrades one-way. */
+  degradeAfterOverflows: z.number().default(3),
+  /** Counterfactual baseline strategy. */
+  baseline: z.enum(["requested", "reference", "off"]).default("requested"),
+  /** Baseline model when baseline is "reference". */
+  referenceModel: z.string().optional(),
+  /** Whether to redact prompt content in persisted logs. */
+  redactPrompts: z.boolean().default(false),
+  /** Streaming usage-sniffer tail window size in bytes. */
+  tailWindowBytes: z.number().default(4096),
+  /** Batch-flush line threshold. */
+  flushLines: z.number().default(64),
+  /** Batch-flush timeout in ms. */
+  flushIntervalMs: z.number().default(200),
+});
+
 export const ConfigSchema = z.object({
   router: RouterConfigSchema.default({}),
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
@@ -84,6 +113,8 @@ export const ConfigSchema = z.object({
     .default({}),
   hints: HintsConfigSchema.default({}),
   ollama: OllamaConfigSchema.default({}),
+  /** Whole section missing ≡ enabled: false. */
+  accounting: AccountingConfigSchema.default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -92,3 +123,4 @@ export type TierConfig = z.infer<typeof TierConfigSchema>;
 export type OllamaConfig = z.infer<typeof OllamaConfigSchema>;
 export type RouterConfig = z.infer<typeof RouterConfigSchema>;
 export type HintsConfig = z.infer<typeof HintsConfigSchema>;
+export type AccountingConfig = z.infer<typeof AccountingConfigSchema>;

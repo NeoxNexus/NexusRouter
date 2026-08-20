@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from "fastify";
 import { createServer as createHttpServer, type RequestListener, type Server } from "node:http";
-import { loadConfig, type Config } from "./config/loader.js";
+import { loadConfig, getDefaultConfigPath, type Config } from "./config/loader.js";
 import { OllamaClient } from "./ollama/client.js";
 import { HybridClassifier } from "./classifier/hybrid.js";
 import {
@@ -16,6 +16,7 @@ import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/ty
 import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
 import { queueRoutingDecision, logWriterState, type RoutingLogEntry } from "./logger.js";
+import { AccountingSwitch } from "./accounting/switch.js";
 
 // Fastify only manages the single server it creates. We capture its raw
 // request handler (via serverFactory) so startServer can bind additional
@@ -396,6 +397,13 @@ export async function createServer(
 ): Promise<FastifyInstance> {
   const config = preloadedConfig || (await loadConfig(configPath));
 
+  // Accounting switch: kill-switch + hot-reload + health visibility.
+  // Created even when disabled so /health can report the "off" state.
+  const accounting = new AccountingSwitch({
+    configPath: configPath || getDefaultConfigPath(),
+    config: config.accounting,
+  });
+
   // Capture Fastify's raw request handler so startServer can attach extra
   // listeners (multiple loopback addresses) that reuse the same pipeline.
   let capturedHandler!: RequestListener;
@@ -420,7 +428,13 @@ export async function createServer(
     status: "ok",
     timestamp: Date.now(),
     ledger: logWriterState(),
+    accounting: accounting.health(),
   }));
+
+  // Ensure the accounting watcher is released when the server closes.
+  app.addHook("onClose", async () => {
+    accounting.close();
+  });
 
   // ─── Route registration helper ───
   const registerRoutes = (prefix: string, protocol: ProtocolType, agentPrefix: string | null) => {
