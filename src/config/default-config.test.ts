@@ -58,6 +58,22 @@ describe("default-config", () => {
     expect(template.router?.hosts).toEqual(["127.0.0.1", "::1"]);
   });
 
+  it("embedded template enables client API key passthrough by default", () => {
+    // New users run NexusRouter in front of Claude Code / Codex / OpenAI SDK,
+    // where the client brings its own key. The default template must reflect
+    // that passthrough is the first-class mode.
+    const template = parse(DEFAULT_CONFIG_YAML.replace(/\$\{[^}]+\}/g, "test-key")) as {
+      providers?: Record<string, { apiKey?: string; passthroughApiKey?: boolean }>;
+    };
+    for (const [name, provider] of Object.entries(template.providers || {})) {
+      expect(provider.passthroughApiKey).toBe(true);
+      // When passthrough is on, the configured apiKey is ignored; leaving it as
+      // an env fallback keeps the template flexible for users who later switch
+      // to a server-side fixed key.
+      expect(provider.apiKey).toBe("test-key");
+    }
+  });
+
   it("resolves the default path under the home dir, cross-platform", () => {
     expect(getDefaultConfigPath()).toBe(join(homedir(), ".nexus-router", "config.yaml"));
   });

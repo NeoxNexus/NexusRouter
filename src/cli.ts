@@ -17,11 +17,26 @@
 
 import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
-import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
+import { getDefaultConfigPath, ensureConfigExists, loadConfig, type Config } from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
 import { pathToFileURL } from "node:url";
 import { evaluateFile, formatEvalReport } from "./eval.js";
+
+type KeyMode = "fixed" | "passthrough" | "none";
+
+/**
+ * Classify how API keys are supplied for the default-config first-launch message.
+ * - "passthrough": at least one provider forwards the client's own key.
+ * - "fixed": at least one provider has a non-empty server-side key.
+ * - "none": no provider is configured to authenticate upstream requests.
+ */
+export function classifyKeyMode(config: Config): KeyMode {
+  const providers = Object.values(config.providers || {});
+  if (providers.some((p) => p.passthroughApiKey)) return "passthrough";
+  if (providers.some((p) => p.apiKey && p.apiKey.trim().length > 0)) return "fixed";
+  return "none";
+}
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -294,11 +309,27 @@ async function main(): Promise<void> {
   if (!args.config) {
     const { created } = await ensureConfigExists(configPath);
     if (created) {
-      console.log(
-        `✅ 已创建默认配置：${configPath}\n` +
-          `请填写 API Key（或设置对应环境变量）后重新启动 nexusrouter。`,
-      );
-      process.exit(0);
+      const config = await loadConfig(configPath);
+      const mode = classifyKeyMode(config);
+      if (mode === "passthrough") {
+        console.log(
+          `✅ 已创建默认配置：${configPath}\n` +
+            `当前为「客户端 API Key 透传」模式，服务端不强制配置固定 key。\n` +
+            `客户端（Claude Code / Codex / OpenAI SDK 等）需在请求头中自带 ` +
+            `Authorization: Bearer <key>。`,
+        );
+      } else if (mode === "fixed") {
+        console.log(
+          `✅ 已创建默认配置：${configPath}\n` +
+            `已检测到服务端固定 API Key，继续启动...`,
+        );
+      } else {
+        console.warn(
+          `⚠️ 已创建默认配置：${configPath}\n` +
+            `当前既未配置服务端 API Key，也未启用客户端透传。\n` +
+            `LLM 上游请求将返回 401，请编辑配置或设置环境变量后重启。`,
+        );
+      }
     }
   }
 

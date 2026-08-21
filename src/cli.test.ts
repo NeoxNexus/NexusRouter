@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseArgs, printHelp } from "./cli.js";
+import { parseArgs, printHelp, classifyKeyMode } from "./cli.js";
+import { ConfigSchema, type Config } from "./config/schema.js";
+
+function makeConfig(partial: Partial<Config> = {}): Config {
+  return ConfigSchema.parse(partial);
+}
 
 describe("parseArgs", () => {
   it("defaults to starting the server", () => {
@@ -57,5 +62,41 @@ describe("printHelp", () => {
     expect(output).toContain("report [days]");
     expect(output).toContain("doctor");
     vi.restoreAllMocks();
+  });
+});
+
+describe("classifyKeyMode", () => {
+  it("returns 'passthrough' when any provider enables passthroughApiKey", () => {
+    const config = makeConfig({
+      providers: {
+        openai: { apiKey: "", passthroughApiKey: true, maxRetries: 3 },
+        anthropic: { apiKey: "sk-secret", passthroughApiKey: false, maxRetries: 3 },
+      },
+    });
+    expect(classifyKeyMode(config)).toBe("passthrough");
+  });
+
+  it("returns 'fixed' when a provider has a non-empty server-side key", () => {
+    const config = makeConfig({
+      providers: {
+        openai: { apiKey: "sk-server", passthroughApiKey: false, maxRetries: 3 },
+        anthropic: { apiKey: "", passthroughApiKey: false, maxRetries: 3 },
+      },
+    });
+    expect(classifyKeyMode(config)).toBe("fixed");
+  });
+
+  it("returns 'none' when no provider has keys or passthrough", () => {
+    const config = makeConfig({
+      providers: {
+        openai: { apiKey: "", passthroughApiKey: false, maxRetries: 3 },
+      },
+    });
+    expect(classifyKeyMode(config)).toBe("none");
+  });
+
+  it("returns 'none' for an empty provider set", () => {
+    const config = makeConfig();
+    expect(classifyKeyMode(config)).toBe("none");
   });
 });

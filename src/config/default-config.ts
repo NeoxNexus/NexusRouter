@@ -42,15 +42,20 @@ export const DEFAULT_CONFIG_YAML = `router:
 
 providers:
   openai:
-    # 留空则要求客户端自带 key（Authorization: Bearer <key>）。
-    # 若对接 new-api 等网关，可设 baseUrl 并开启 passthroughApiKey: true。
+    # 默认启用客户端 API Key 透传（passthroughApiKey: true）。
+    # 客户端（Claude Code / Codex / OpenAI SDK 等）需在请求头中自带
+    # Authorization: Bearer <key>，NexusRouter 会原样转发给上游。
+    # 如需改为服务端固定 key，请关闭 passthroughApiKey 并填写 apiKey。
     apiKey: \${OPENAI_API_KEY:-}
+    passthroughApiKey: true
     maxRetries: 3
   anthropic:
     apiKey: \${ANTHROPIC_API_KEY:-}
+    passthroughApiKey: true
     maxRetries: 3
   google:
     apiKey: \${GOOGLE_API_KEY:-}
+    passthroughApiKey: true
     maxRetries: 3
 
 # 四档模型映射。fallback 已接线：primary 返回非 2xx 且尚未开始流式输出时
