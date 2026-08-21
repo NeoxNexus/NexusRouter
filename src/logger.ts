@@ -2,8 +2,8 @@
  * Usage Logger
  *
  * Logs every LLM request as a JSON line to a daily log file.
- * Files: ~/.nexusrouter/logs/usage-YYYY-MM-DD.jsonl
- *        ~/.nexusrouter/logs/routing-YYYY-MM-DD.jsonl
+ * Files: ~/.nexus-router/logs/usage-YYYY-MM-DD.jsonl
+ *        ~/.nexus-router/logs/routing-YYYY-MM-DD.jsonl
  *
  * MVP: append-only JSON lines. No rotation, no cleanup.
  * Logging never breaks the request flow — all errors are swallowed.
@@ -156,7 +156,7 @@ export type RoutingLogEntry = {
  * `queueRoutingDecision()` on the request path — this variant costs one
  * `appendFile` per call and is the ~2,959 req/s throughput ceiling.
  *
- * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexusrouter/logs
+ * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexus-router/logs
  */
 export async function logRoutingDecision(
   entry: RoutingLogEntry,

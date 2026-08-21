@@ -34,15 +34,17 @@
 | `/health` 极简      | `server.ts:411` 只返回 `{status, timestamp}`；默认仅绑回环双栈（commit `c2bf803`）                                           |
 | CLI 无报表入口      | `cli.ts` 仅 `--version` / `--help` / `doctor` / `--port` / `--config`                                                        |
 
+> **注意**：2026-08-21 已将日志目录统一为 `~/.nexus-router/logs`，`src/paths.ts` 的 `migrateLegacyLogDir()` 会自动迁移旧 `~/.nexusrouter/logs` 中的数据。
+
 ### 🔴 新发现缺陷 11：读侧忽略 `NEXUSROUTER_LOG_DIR`（大屏的先决 bug）
 
-`stats.ts:15` 硬编码 `const LOG_DIR = join(homedir(), ".nexusrouter", "logs")`，而 `logger.ts:38` 是 `process.env.NEXUSROUTER_LOG_DIR || DEFAULT_LOG_DIR`。
+`stats.ts:15` 硬编码 `const LOG_DIR = join(homedir(), ".nexus-router", "logs")`，而 `logger.ts:38` 是 `process.env.NEXUSROUTER_LOG_DIR || DEFAULT_LOG_DIR`。
 
 **后果**：一旦用户（或测试、或容器部署）设置了 `NEXUSROUTER_LOG_DIR`，写侧写到 A 目录、读侧从 B 目录读 —— 大屏永远显示 0，且没有任何报错。这条必须先修，否则大屏在最常见的容器场景下直接是死屏。
 
-### ⚠️ 目录命名不一致
+### ✅ 目录命名已统一
 
-配置在 `~/.nexus-router/`（带连字符，commit `c3dfe00`），日志在 `~/.nexusrouter/`（不带）。建议读侧统一由一个 `paths.ts` 解析，不再各处 `join(homedir(), ...)`；迁移须兼容既有日志目录。
+配置与日志现在统一在 `~/.nexus-router/` 下（配置在根目录，日志在 `logs/` 子目录）。`src/paths.ts` 的 `migrateLegacyLogDir()` 会在启动时把旧 `~/.nexusrouter/logs/` 中的 usage/routing 日志自动迁移到新目录，避免老用户升级后历史数据丢失。
 
 ---
 

@@ -16,7 +16,12 @@ import {
 import type { UnifiedRequest, AgentHints, ClassifierWeights } from "./adapter/types.js";
 import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
-import { queueRoutingDecision, logWriterState, type RoutingLogEntry, type UsageEntryV2 } from "./logger.js";
+import {
+  queueRoutingDecision,
+  logWriterState,
+  type RoutingLogEntry,
+  type UsageEntryV2,
+} from "./logger.js";
 import { AccountingSwitch } from "./accounting/switch.js";
 import { costOf, emptyUsage } from "./pricing/price-book.js";
 import { resolveBaseline, type BaselineOptions } from "./accounting/baseline.js";
@@ -25,7 +30,7 @@ import {
   extractAnthropicNonStreamingUsage,
   extractOpenAINonStreamingUsage,
 } from "./adapter/usage-sniffer.js";
-import { logFilePath, ensureLogDir, resolveLogDir } from "./paths.js";
+import { logFilePath, ensureLogDir, resolveLogDir, migrateLegacyLogDir } from "./paths.js";
 import { registerDashboardRoutes } from "./dashboard/web.js";
 
 // Fastify only manages the single server it creates. We capture its raw
@@ -607,6 +612,14 @@ export interface RunningServer {
 
 export async function startServer(configPath?: string, port?: number): Promise<RunningServer> {
   const config = await loadConfig(configPath);
+
+  // Migrate legacy `~/.nexusrouter/logs` to the unified `~/.nexus-router/logs`
+  // before any logger or dashboard opens a file descriptor. Skip in Vitest so
+  // tests never touch the developer's home directory.
+  if (!process.env.VITEST) {
+    await migrateLegacyLogDir();
+  }
+
   const app = await createServer(configPath, config);
   const listenPort = port || config.router.port;
   const hosts = config.router.hosts;

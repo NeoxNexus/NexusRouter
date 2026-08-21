@@ -10,7 +10,7 @@
  * may set the variable after this module is imported.
  */
 
-import { mkdir } from "node:fs/promises";
+import { access, mkdir, readdir, rename, rmdir, stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -18,9 +18,9 @@ import { homedir } from "node:os";
 /** Log file kinds, one file per kind per day. */
 export type LogKind = "usage" | "routing";
 
-/** `~/.nexusrouter/logs` — note this is *not* the config dir (`~/.nexus-router`). */
+/** `~/.nexus-router/logs` — now unified with the config directory. */
 export function defaultLogDir(): string {
-  return join(homedir(), ".nexusrouter", "logs");
+  return join(homedir(), ".nexus-router", "logs");
 }
 
 /** Resolved per call so `NEXUSROUTER_LOG_DIR` can be set after module load. */
@@ -63,4 +63,74 @@ export function ensureLogDirSync(dir: string): void {
   } catch {
     // Swallowed on purpose: never break the exit path.
   }
+}
+
+export type MigrationResult = {
+  /** Number of log files moved from the legacy directory. */
+  moved: number;
+  /** Number of files left behind because of name collisions. */
+  skipped: number;
+};
+
+/**
+ * One-time migration from the legacy `~/.nexusrouter/logs` to the unified
+ * `~/.nexus-router/logs`. This preserves existing usage/routing logs when a
+ * user upgrades from the pre-unification layout.
+ *
+ * - If the legacy directory does not exist, this is a no-op.
+ * - If the target directory already exists, files are moved individually and
+ *   name collisions are skipped rather than overwritten.
+ * - Empty leftover directories are removed after a successful move.
+ *
+ * Called from `startServer` (CLI / programmatic entry) but skipped under
+ * Vitest to avoid touching the developer's home directory during tests.
+ */
+export async function migrateLegacyLogDir(
+  targetDir: string = resolveLogDir(),
+  legacyDir: string = join(homedir(), ".nexusrouter", "logs"),
+): Promise<MigrationResult> {
+  const result: MigrationResult = { moved: 0, skipped: 0 };
+
+  if (legacyDir === targetDir) return result;
+
+  try {
+    await access(legacyDir);
+  } catch {
+    return result;
+  }
+
+  await ensureLogDir(targetDir);
+
+  const entries = await readdir(legacyDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      result.skipped++;
+      continue;
+    }
+    const source = join(legacyDir, entry.name);
+    const dest = join(targetDir, entry.name);
+    try {
+      await stat(dest);
+      result.skipped++;
+    } catch {
+      try {
+        await rename(source, dest);
+        result.moved++;
+      } catch {
+        result.skipped++;
+      }
+    }
+  }
+
+  // Clean up empty legacy directories, but never fail the migration because
+  // of leftover files or directory permissions.
+  try {
+    await rmdir(legacyDir);
+    const legacyParent = join(legacyDir, "..");
+    await rmdir(legacyParent);
+  } catch {
+    // Directory not empty or no permission — leave it alone.
+  }
+
+  return result;
 }

@@ -77,7 +77,7 @@ ollama:
     accurate: qwen3.5:4b
   timeout: 30000
 
-# 省钱记账：默认开启，写 usage 日志到 ~/.nexusrouter/logs/，
+# 省钱记账：默认开启，写 usage 日志到 ~/.nexus-router/logs/，
 # 并基于 same-usage-repricing 估算反事实基线成本。
 accounting:
   enabled: true

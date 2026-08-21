@@ -414,7 +414,8 @@ ollama:
           messages: [
             {
               role: "user",
-              content: "<system-reminder>\nSessionStart hook additional context\n</system-reminder>",
+              content:
+                "<system-reminder>\nSessionStart hook additional context\n</system-reminder>",
             },
           ],
           tools: [{ name: "Read", input_schema: { type: "object" } }],
@@ -506,7 +507,7 @@ describe("Model prefix stripping and API key passthrough", () => {
   let logDir: string;
 
   // Routing decisions are logged as a side effect; redirect them to a temp dir
-  // so the suite never appends to the user's real ~/.nexusrouter/logs.
+  // so the suite never appends to the user's real ~/.nexus-router/logs.
   beforeEach(async () => {
     logDir = await fs.mkdtemp(path.join(os.tmpdir(), "nexusrouter-prefix-log-"));
     process.env.NEXUSROUTER_LOG_DIR = logDir;
