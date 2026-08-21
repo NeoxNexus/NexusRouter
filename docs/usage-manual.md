@@ -1,8 +1,8 @@
 # NexusRouter 使用手册
 
-> 版本：v0.12.5 | 更新日期：2026-08-13
+> 版本：v0.12.5 | 更新日期：2026-08-19
 >
-> 本手册对应代码当前真实行为编写。仓库中 `docs/` 下部分旧文档仍残留 ClawRouter/BlockRun 时代的描述，以本手册为准。
+> 本手册对应代码当前真实行为编写。
 
 ## 目录
 
@@ -14,6 +14,13 @@
 - [6. 接入各 Agent](#6-接入各-agent)
 - [7. 四级路由与调优](#7-四级路由与调优)
 - [8. 远端多人部署（对接 new-api）](#8-远端多人部署对接-new-api)
+  - [8.1 架构](#81-架构)
+  - [8.2 NexusRouter 配置](#82-nexusrouter-配置)
+  - [8.3 nginx 反代示例](#83-nginx-反代示例)
+  - [8.4 systemd 常驻](#84-systemd-常驻)
+  - [8.5 Docker / Compose 一键部署](#85-docker--compose-一键部署)
+  - [8.6 成员侧配置](#86-成员侧配置)
+  - [8.7 上线 Checklist](#87-上线-checklist)
 - [9. 观测与调试](#9-观测与调试)
 - [10. 常见问题 FAQ](#10-常见问题-faq)
 - [11. 当前已知限制](#11-当前已知限制)
@@ -24,11 +31,11 @@
 
 NexusRouter 是一个本地/内网运行的 **LLM 智能路由代理**。它在 Agent（Claude Code、OpenClaw、Cursor 等）和模型 API 之间加了一层：
 
-- 对每个请求做**本地复杂度分类**（全内存计算，<1ms，零额外 token 成本）
-- 按复杂度把请求转发到**不同档位的模型**——简单请求走便宜模型，复杂推理才走旗舰模型
+- 对每个请求做**本地复杂度分类**（全内存计算，<1ms，不调用外部 API）
+- 按复杂度把请求转发到**最合适的模型**——简单请求交给高效轻量模型，复杂推理自动升级到旗舰模型
 - 完全兼容 OpenAI / Anthropic 两种协议，**不需要修改任何 Agent 源码**
 
-典型收益：Claude Code 挂机时大量后台小请求（列目录、确认状态、解析简单报错）被分流到 `gpt-4o-mini` 级别的廉价模型，API 成本可降一个数量级。
+典型效果：Claude Code 挂机时大量背景请求（列目录、确认状态、解析简单报错）会被匹配到 `gpt-4o-mini` 等轻量模型，而架构设计、数学证明等复杂任务则始终使用 `claude-sonnet`、`o3-mini` 等高级模型。请求与模型之间的错配被显著降低，成本优化是智能匹配的自然结果。
 
 ## 2. 工作原理
 
@@ -173,12 +180,12 @@ tiers:
   REASONING: { primary: provider/模型, fallback: [...] }
 
 ollama:
-  enabled: false # 没装 Ollama 必须 false，否则每请求白等降级
+  enabled: false # 总开关：false 时 Layer 2 整块跳过、零请求；true 且 Ollama 不可达时最多等 timeout 即降级兜底
   baseUrl: http://localhost:11434
   models:
-    fast: qwen2.5:3b # AI 分类层用的本地小模型
-    accurate: qwen2.5:14b
-  timeout: 30000
+    fast: qwen3:4b # AI 分类层用的本地小模型
+    accurate: qwen3:8b
+  timeout: 800 # 到点即降级兜底，宁短勿长
 ```
 
 ### 5.2 环境变量展开
@@ -251,7 +258,7 @@ ANTHROPIC_BASE_URL: http://127.0.0.1:8402/anthropic
 ANTHROPIC_AUTH_TOKEN: nexusrouter
 ```
 
-典型用法：cc-switch 里保留"NexusRouter（省钱路由）"和"官方直连（满血稳定）"两档，按场景一键切换。注意切到 NexusRouter 前必须先把它启动。
+典型用法：cc-switch 里保留"NexusRouter（智能路由）"和"官方直连（满血稳定）"两档，按场景一键切换。注意切到 NexusRouter 前必须先把它启动。
 
 ## 7. 四级路由与调优
 
@@ -370,7 +377,27 @@ WantedBy=multi-user.target
 sudo systemctl enable --now nexusrouter
 ```
 
-### 8.5 成员侧配置
+### 8.5 Docker / Compose 一键部署
+
+我们更推荐使用仓库自带的 Docker Compose 方案：
+
+```bash
+cd deploy/new-api
+# 修改 config.yaml、docker-compose.yml、nginx.conf 中的域名与证书
+vim config.yaml docker-compose.yml nginx.conf
+docker compose up -d --build
+```
+
+该方案包含：
+
+- 多阶段构建的 NexusRouter 生产镜像
+- nginx TLS 终止 + SSE 流式支持
+- `expose` 而非 `ports` 8402，只让 nginx 能访问 NexusRouter
+- 完整的 passthrough 配置模板
+
+详细说明见 [`deploy/new-api/README.md`](../deploy/new-api/README.md)。
+
+### 8.6 成员侧配置
 
 每人去 new-api 后台申请自己的令牌，然后：
 
@@ -381,7 +408,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-<自己的 new-api 令牌>"
 
 或用 cc-switch 配成供应商，全组共享同一份配置模板、各填各的令牌。
 
-### 8.6 上线 Checklist
+### 8.7 上线 Checklist
 
 - [ ] `router.timeout` 已显式设置（≥ 300000）
 - [ ] `ollama.enabled: false`（除非服务器真装了 Ollama）
@@ -401,7 +428,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-<自己的 new-api 令牌>"
 | `x-nexusrouter-confidence` | 分类置信度（0~1）                             |
 | `x-nexusrouter-agent`      | 识别出的 Agent 画像名                         |
 
-排查"为什么这个请求走了便宜模型"时，先看这四个头。
+排查"为什么这个请求被分到 SIMPLE/MEDIUM 而不是 COMPLEX/REASONING"时，先看这四个头。
 
 ### 9.2 日志
 
@@ -421,7 +448,7 @@ curl http://127.0.0.1:8402/health
 ### 9.4 测试命令
 
 ```bash
-npm test                              # 单元测试（348 个）
+npm test                              # 单元测试（419 个）
 npm run typecheck                     # 类型检查
 npm run test:resilience:quick         # 快速韧性测试
 npm run test:e2e:tool-ids             # 端到端 tool id 测试
@@ -436,7 +463,7 @@ npm run test:e2e:tool-ids             # 端到端 tool id 测试
 没设置 `router.timeout`，schema 默认 1000ms。在 `config.yaml` 里加 `timeout: 300000`。
 
 **Q: 每个请求都慢几秒才响应**
-大概率是 `ollama.enabled: true` 但本机没跑 Ollama，分类器在等连接失败后降级。关掉它或启动 Ollama。
+大概率是 `ollama.enabled: true` 但本机没跑 Ollama：Layer 2 每次请求都要等连接失败，直到 `ollama.timeout`（默认 800ms，若被调大会更慢）后降级。`enabled: false` 时该层整体跳过、完全不访问 localhost——关掉它或启动 Ollama。
 
 **Q: 上游 404，模型不存在**
 tiers 里的模型名和上游平台（尤其 new-api）里的名字不一致。转发时 provider 前缀会被剥掉，上游收到的是 `/` 后面的部分，按那个核对。

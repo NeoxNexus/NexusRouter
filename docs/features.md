@@ -1,257 +1,81 @@
-# Advanced Features
+# NexusRouter 高级特性
 
-ClawRouter v0.5+ includes intelligent routing features that work automatically.
+NexusRouter 包含多个能力模块，部分已接入主请求链路，部分已实现但尚未接线。本文档区分两者，避免误解。
 
-## Table of Contents
+## 目录
 
-- [Response Cache](#response-cache)
-- [Agentic Auto-Detection](#agentic-auto-detection)
-- [Tool Detection](#tool-detection)
-- [Context-Length-Aware Routing](#context-length-aware-routing)
-- [Model Aliases](#model-aliases)
-- [Free Tier Fallback](#free-tier-fallback)
-- [Session Persistence](#session-persistence)
-- [Cost Tracking with /stats](#cost-tracking-with-stats)
+- [已接入主链的能力](#已接入主链的能力)
+- [已实现但未接线的能力](#已实现但未接线的能力)
+- [计划中的能力](#计划中的能力)
 
 ---
 
-## Response Cache
+## 已接入主链的能力
 
-ClawRouter includes LLM response caching inspired by LiteLLM's caching system. Identical requests return cached responses, saving both cost and latency.
+### 15 维本地复杂度分类
 
-**How it works:**
+核心能力。对每个请求在本地进行 15 维评分，<1ms 内判定 Tier：
 
-```
-Request: "What is 2+2?"
-  First call:  → API ($0.001) → Cache response
-  Second call: → Cache HIT → Return instantly ($0)
-```
+- 规则层（<0.1ms）
+- 启发式层（~1ms）
+- Ollama AI 层（可选，5-8ms）
 
-**Features:**
+### 双协议支持
 
-| Feature      | Default     | Description                |
-| ------------ | ----------- | -------------------------- |
-| TTL          | 10 minutes  | Responses expire after TTL |
-| Max size     | 200 entries | LRU eviction when full     |
-| Item limit   | 1MB         | Large responses skipped    |
-| Auto-enabled | Yes         | No config needed           |
+同时暴露 OpenAI 与 Anthropic 兼容端点：
 
-**Cache key generation:**
+- `/v1/chat/completions`
+- `/anthropic/v1/messages`
+- `/openclaw/v1`（旧版兼容）
 
-The cache key is a SHA-256 hash of the request body (model + messages + params), with normalization:
+### Agent Profile 插件
 
-- Message timestamps stripped (OpenClaw injects `[Mon 2024-01-15 10:30 UTC]`)
-- Keys sorted for consistent hashing
-- Stream mode, user, and request_id fields excluded
+按不同 Agent 动态调整分类权重：
 
-**Bypass cache:**
+- `claude-code`
+- `openclaw`
+- `cursor`（框架占位）
 
-```typescript
-// Via header
-fetch("/v1/chat/completions", {
-  headers: { "Cache-Control": "no-cache" }
-})
+### API Key 透传（passthroughApiKey）
 
-// Via body
-{
-  "model": "blockrun/auto",
-  "cache": false,  // or "no_cache": true
-  "messages": [...]
-}
-```
+支持把客户端自带的 key 原样转发给上游网关，常用于 new-api 远程部署。
 
-**Check cache stats:**
+### 路由判定响应头
 
-```bash
-curl http://localhost:8402/cache
-```
+每次响应附带：
 
-Response:
-
-```json
-{
-  "size": 42,
-  "maxSize": 200,
-  "hits": 156,
-  "misses": 89,
-  "evictions": 3,
-  "hitRate": "63.7%"
-}
-```
-
-**Configuration:**
-
-Response caching is enabled by default with sensible defaults. For advanced tuning, the cache can be configured programmatically:
-
-```typescript
-import { ResponseCache } from "@blockrun/clawrouter";
-
-const cache = new ResponseCache({
-  maxSize: 500, // Max cached responses
-  defaultTTL: 300, // 5 minutes
-  maxItemSize: 2_097_152, // 2MB max per item
-  enabled: true,
-});
-```
+| 响应头                     | 含义                                  |
+| :------------------------- | :------------------------------------ |
+| `x-nexusrouter-tier`       | SIMPLE / MEDIUM / COMPLEX / REASONING |
+| `x-nexusrouter-layer`      | rule / heuristic / ai / fallback      |
+| `x-nexusrouter-confidence` | 置信度 0~1                            |
+| `x-nexusrouter-agent`      | 识别出的 Agent 画像                   |
 
 ---
 
-## Agentic Auto-Detection
+## 已实现但未接线的能力
 
-ClawRouter automatically detects multi-step agentic tasks and routes to models optimized for autonomous execution:
+以下模块在代码库中存在且有单元测试，但**不在当前主请求链路上生效**。
 
-```
-"what is 2+2"                    → gemini-flash (standard)
-"build the project then run tests" → kimi-k2.5 (auto-agentic)
-"fix the bug and make sure it works" → kimi-k2.5 (auto-agentic)
-```
+| 模块                     | 文件                                | 状态                                        |
+| :----------------------- | :---------------------------------- | :------------------------------------------ |
+| Response Cache           | `src/response-cache.ts`             | 未接线                                      |
+| Request Deduplicator     | `src/dedup.ts`                      | 未接线                                      |
+| Session Store / Journal  | `src/session.ts` / `src/journal.ts` | 未接线                                      |
+| Compression              | `src/compression/`                  | 未接线                                      |
+| Stats / Report           | `src/stats.ts` / `src/report.ts`    | 未接线                                      |
+| 完整 15 维成本感知选模器 | `src/router/selector.ts`            | 未接入主链，当前生效的是 `HybridClassifier` |
 
-**How it works:**
-
-- Detects agentic keywords: file ops ("read", "edit"), execution ("run", "test", "deploy"), iteration ("fix", "debug", "verify")
-- Threshold: 2+ signals triggers auto-switch to agentic tiers
-- No config needed — works automatically
-
-**Agentic tier models** (optimized for multi-step autonomy):
-
-| Tier      | Agentic Model     | Why                            |
-| --------- | ----------------- | ------------------------------ |
-| SIMPLE    | claude-haiku-4.5  | Fast + reliable tool use       |
-| MEDIUM    | kimi-k2.5         | 200+ tool chains, 76% cheaper  |
-| COMPLEX   | claude-sonnet-4.6 | Best balance for complex tasks |
-| REASONING | kimi-k2.5         | Extended reasoning + execution |
-
-### Force Agentic Mode
-
-You can also force agentic mode via config:
-
-```yaml
-# openclaw.yaml
-plugins:
-  - id: "@blockrun/clawrouter"
-    config:
-      routing:
-        overrides:
-          agenticMode: true # Always use agentic tiers
-```
+这些模块将在后续 Phase 通过统一的 middleware/pipeline 方式接入主链。当前文档中不应把它们描述为"已启用"。
 
 ---
 
-## Tool Detection
+## 计划中的能力
 
-When your request includes a `tools` array (function calling), ClawRouter automatically switches to agentic tiers:
+- 结构化路由决策日志
+- Prometheus `/metrics` 端点
+- 真正的 Buffer Passthrough（同协议跳过解析）
+- Adapter 单例化与对象复用
+- 负载测试与性能基线
 
-```typescript
-// Request with tools → auto-agentic mode
-{
-  model: "blockrun/auto",
-  messages: [{ role: "user", content: "Check the weather" }],
-  tools: [{ type: "function", function: { name: "get_weather", ... } }]
-}
-// → Routes to claude-haiku-4.5 (excellent tool use)
-// → Instead of gemini-flash (may produce malformed tool calls)
-```
-
-**Why this matters:** Some models (like `deepseek-reasoner`) are optimized for chain-of-thought reasoning but can generate malformed tool calls. Tool detection ensures requests with functions go to models proven to handle tool use correctly.
-
----
-
-## Context-Length-Aware Routing
-
-ClawRouter automatically filters out models that can't handle your context size:
-
-```
-150K token request:
-  Full chain: [grok-4-fast (131K), deepseek (128K), kimi (262K), gemini (1M)]
-  Filtered:   [kimi (262K), gemini (1M)]
-  → Skips models that would fail with "context too long" errors
-```
-
-This prevents wasted API calls and faster fallback to capable models.
-
----
-
-## Model Aliases
-
-Use short aliases instead of full model paths:
-
-```bash
-/model free      # gpt-oss-120b (FREE!)
-/model br-sonnet # anthropic/claude-sonnet-4.6
-/model br-opus   # anthropic/claude-opus-4
-/model br-haiku  # anthropic/claude-haiku-4.5
-/model gpt       # openai/gpt-4o
-/model gpt5      # openai/gpt-5.4
-/model deepseek  # deepseek/deepseek-chat
-/model reasoner  # deepseek/deepseek-reasoner
-/model kimi      # moonshot/kimi-k2.5
-/model gemini    # google/gemini-2.5-pro
-/model flash     # google/gemini-2.5-flash
-/model grok      # xai/grok-3
-/model grok-fast # xai/grok-4-fast-reasoning
-```
-
-All aliases work with `/model blockrun/xxx` or just `/model xxx`.
-
----
-
-## Free Tier Fallback
-
-When your wallet balance hits $0, ClawRouter automatically falls back to the free model (`gpt-oss-120b`):
-
-```
-Wallet: $0.00
-Request: "Help me write a function"
-→ Routes to gpt-oss-120b (FREE)
-→ No "insufficient funds" error
-→ Keep building while you top up
-```
-
-You'll never get blocked by an empty wallet — the free tier keeps you running.
-
----
-
-## Session Persistence
-
-For multi-turn conversations, ClawRouter pins the model to prevent mid-task switching:
-
-```
-Turn 1: "Build a React component" → claude-sonnet-4.6
-Turn 2: "Add dark mode support"   → claude-sonnet-4.6 (pinned)
-Turn 3: "Now add tests"           → claude-sonnet-4.6 (pinned)
-```
-
-Sessions are identified by conversation ID and persist for 1 hour of inactivity.
-
----
-
-## Cost Tracking with /stats
-
-Track your savings in real-time:
-
-```bash
-# In any OpenClaw conversation
-/stats
-```
-
-Output:
-
-```
-+============================================================+
-|              ClawRouter Usage Statistics                   |
-+============================================================+
-|  Period: last 7 days                                      |
-|  Total Requests: 442                                      |
-|  Total Cost: $1.73                                       |
-|  Baseline Cost (Opus): $20.13                            |
-|  Total Saved: $18.40 (91.4%)                             |
-+------------------------------------------------------------+
-|  Routing by Tier:                                          |
-|    SIMPLE     ===========           55.0% (243)            |
-|    MEDIUM     ======                30.8% (136)            |
-|    COMPLEX    =                      7.2% (32)             |
-|    REASONING  =                      7.0% (31)             |
-+============================================================+
-```
-
-Stats are stored locally at `~/.openclaw/blockrun/logs/` and aggregated on demand.
+详见 [`ROADMAP.md`](../ROADMAP.md)。

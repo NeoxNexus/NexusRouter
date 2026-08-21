@@ -53,6 +53,11 @@ providers:
     apiKey: \${GOOGLE_API_KEY:-}
     maxRetries: 3
 
+# 四档模型映射。fallback 已接线：primary 返回非 2xx 且尚未开始流式输出时
+# 按序降级，全部失败时客户端收到最后一次错误。注意：fallback 复用请求协议
+# 转发（Anthropic 协议的请求降级时仍以 Anthropic 格式发出），因此 fallback
+# 必须与请求协议同构，或指向会做协议转换的网关；跨协议直连（如 Claude Code
+# 流量降级到 google/* 的官方端点）必然失败，配置前请确认。
 tiers:
   SIMPLE:
     primary: openai/gpt-4o-mini
@@ -67,15 +72,19 @@ tiers:
     primary: openai/o3-mini
     fallback: [anthropic/claude-haiku-3-5-20250620]
 
-# Ollama 本地小模型分类层。服务器上没装 Ollama 时必须保持 false，
-# 否则每个请求都要等连接失败降级，白白增加延迟
+# Ollama 本地小模型分类层（Layer 2）。enabled 是该层总开关：false 时分类器
+# 整块跳过 Layer 2，不会向 baseUrl 发任何请求，低置信流量直接落启发式兜底。
+# 启用前先 ollama pull 对应模型；pull 不等于加载进内存，建议再执行
+# ollama run qwen3:4b "" 预热，否则冷启动/闲置卸载后的首个请求会因 800ms
+# 超时降级（属预期，可按需调大 timeout）。分类在请求关键路径上，
+# timeout（毫秒）到点即降级兜底，宁短勿长。
 ollama:
   enabled: false
   baseUrl: http://localhost:11434
   models:
-    fast: qwen3.5:2b
-    accurate: qwen3.5:4b
-  timeout: 30000
+    fast: qwen3:4b
+    accurate: qwen3:8b
+  timeout: 800
 
 # 省钱记账：默认开启，写 usage 日志到 ~/.nexus-router/logs/，
 # 并基于 same-usage-repricing 估算反事实基线成本。

@@ -20,15 +20,32 @@ export const TierConfigSchema = z.object({
 });
 
 export const OllamaModelsSchema = z.object({
-  fast: z.string().default("qwen2.5:3b"),
-  accurate: z.string().default("qwen2.5:14b"),
+  fast: z.string().default("qwen3:4b"),
+  accurate: z.string().default("qwen3:8b"),
 });
 
 export const OllamaConfigSchema = z.object({
   enabled: z.boolean().default(false),
   baseUrl: z.string().default("http://localhost:11434"),
   models: OllamaModelsSchema.default({}),
-  timeout: z.number().default(30000),
+  // 分类在请求关键路径上：超时即降级到启发式兜底，默认压到 800ms，宁短勿长。
+  timeout: z.number().default(800),
+});
+
+/**
+ * Layer 2 大模型分类层的后端选择。与 router.classifier（"heuristic"/"hybrid"
+ * 分层策略）是两回事：这里选的是 hybrid 模式下 Layer 2 实际调用的模型服务。
+ * provider: "openai-compat" 时本段即视为启用（不看 ollama.enabled，它只管
+ * ollama 路径），baseUrl 需含 /v1（new-api 网关 / vLLM 私有部署）；
+ * baseUrl/model 缺失则启动时告警并回退 ollama 路径。
+ */
+export const AiClassifierConfigSchema = z.object({
+  provider: z.enum(["ollama", "openai-compat"]).default("ollama"),
+  baseUrl: z.string().optional(),
+  // 空串 = 不带 Authorization 头，兼容无鉴权的内网网关。
+  apiKey: z.string().default(""),
+  model: z.string().optional(),
+  timeout: z.number().default(800),
 });
 
 export const LayersRulesSchema = z.object({
@@ -61,6 +78,11 @@ export const RouterConfigSchema = z.object({
   classifier: z.enum(["heuristic", "hybrid"]).default("hybrid"),
   layers: LayersConfigSchema.default({}),
   timeout: z.number().default(1000),
+  /**
+   * 上下文 token 护栏：估算的总上下文 token（rawBody 字符数 / 4）超过此值时，
+   * 无论分类器给什么档，都至少抬到 COMPLEX —— 超长上下文让小模型处理必劣化。
+   */
+  maxTokensForceComplex: z.number().default(100_000),
   /** Enable the built-in web dashboard at /dashboard (default true). */
   dashboard: z.boolean().default(true),
 });
@@ -128,6 +150,7 @@ export const ConfigSchema = z.object({
     .default({}),
   hints: HintsConfigSchema.default({}),
   ollama: OllamaConfigSchema.default({}),
+  aiClassifier: AiClassifierConfigSchema.default({}),
   /** Whole section missing ≡ enabled: false. */
   accounting: AccountingConfigSchema.default({}),
 });
@@ -136,6 +159,7 @@ export type Config = z.infer<typeof ConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type TierConfig = z.infer<typeof TierConfigSchema>;
 export type OllamaConfig = z.infer<typeof OllamaConfigSchema>;
+export type AiClassifierConfig = z.infer<typeof AiClassifierConfigSchema>;
 export type RouterConfig = z.infer<typeof RouterConfigSchema>;
 export type HintsConfig = z.infer<typeof HintsConfigSchema>;
 export type AccountingConfig = z.infer<typeof AccountingConfigSchema>;

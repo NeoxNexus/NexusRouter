@@ -23,6 +23,7 @@ gantt
     审阅基线固化             :p3a, 2026-03-08, 1d
     主链收口设计             :p3b, after p3a, 3d
     文档与品牌统一           :p3c, after p3b, 2d
+    部署基线固化             :p3d, after p3c, 1d
 
     section Phase 4 — Benchmark 与正确性
     Benchmark 数据集设计     :p4a, after p3c, 2d
@@ -42,7 +43,7 @@ gantt
     section Phase 7 — 性能与生产强化
     真正 Passthrough 优化    :p7a, after p6c, 2d
     压测与瓶颈优化           :p7b, after p7a, 3d
-    Docker / Compose 部署    :p7c, after p7b, 2d
+    部署基线性能调优         :p7c, after p7b, 2d
 
     section Phase 8 — 发布与生态接入
     API与接入文档完善        :p8a, after p7c, 2d
@@ -213,20 +214,25 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
 - [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
   - 前置（D-001 遗留）：`config.yaml` 四档模型未注册 `models.ts`，`filterByToolCalling`/成本估算接入前必须先定模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
-- [ ] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
-- [ ] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
+- [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
+- [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
 - [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录
-- [x] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径
+- [ ] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径
+- [x] **3.8 部署基线收口与文档入口统一**
+  - 确认 `deploy/new-api/` 为唯一官方验证的远程部署形态（nginx + NexusRouter + new-api passthrough）
+  - 在 `README.md` 与 `docs/usage-manual.md` 中增加部署入口与快速链接
+  - 归档 `docs/plans/2026-02-13-e2e-docker-deployment.md` 等旧部署文档
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
 
-| 指标       | 目标                                     |
-| :--------- | :--------------------------------------- |
-| 主链唯一性 | `server.ts` 只保留一套清晰决策主线       |
-| 文档一致性 | README / docs 主叙事与当前代码一致       |
-| 品牌一致性 | 主文档与插件元数据不再出现旧产品核心叙事 |
-| 交付物     | 架构收口变更记录与文档更新               |
+| 指标       | 目标                                                                              |
+| :--------- | :-------------------------------------------------------------------------------- |
+| 主链唯一性 | `server.ts` 只保留一套清晰决策主线                                                |
+| 文档一致性 | README / docs 主叙事与当前代码一致                                                |
+| 品牌一致性 | 主文档与插件元数据不再出现旧产品核心叙事                                          |
+| 部署基线   | README / usage-manual 指向 `deploy/new-api`，Phase 7 不再包含 Docker/Compose 任务 |
+| 交付物     | 架构收口变更记录与文档更新                                                        |
 
 ---
 
@@ -388,7 +394,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 - 真正的 passthrough 优化
 - 1000 QPS 级别压测与瓶颈定位
-- Docker 一键部署（含 Compose 配置）
+- 基于已锁定的 `deploy/new-api` 部署基线进行性能调优
 
 ### 关键任务
 

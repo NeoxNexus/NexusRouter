@@ -9,6 +9,7 @@
  *   nexusrouter --version        # Show version
  *   nexusrouter --port 8402      # Custom port
  *   nexusrouter doctor [question] # Run diagnostics
+ *   nexusrouter eval <labeled.jsonl> # Evaluate routing quality against labels
  *
  * For production deployments, use with PM2:
  *   pm2 start "npx nexusrouter" --name nexusrouter
@@ -20,6 +21,7 @@ import { getDefaultConfigPath, ensureConfigExists } from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
 import { pathToFileURL } from "node:url";
+import { evaluateFile, formatEvalReport } from "./eval.js";
 
 /** Human-readable default config path, tuned per OS for the help text. */
 function defaultConfigHint(): string {
@@ -35,6 +37,7 @@ NexusRouter v${VERSION} - Smart LLM Router (Direct API, No Payments)
 Usage:
   nexusrouter [options]
   nexusrouter doctor [question]
+  nexusrouter eval <labeled.jsonl>
   nexusrouter stats [days]
   nexusrouter report [days]
 
@@ -52,6 +55,9 @@ Commands:
   doctor            AI-powered diagnostics
   stats [days]      Show usage statistics (default: 7 days)
   report [days]     Show detailed usage report (default: 7 days)
+  eval              Evaluate routing quality against a labeled routing log
+                    (JSONL lines annotated with expectedTier; sibling
+                    routing-outcome-*.jsonl files are joined automatically)
 
 Examples:
   # Start server
@@ -65,6 +71,9 @@ Examples:
 
   # Detailed JSON report for the last 7 days
   npx nexusrouter report --json
+
+  # Evaluate routing accuracy against human labels
+  npx nexusrouter eval ~/.nexusrouter/logs/labeled.jsonl
 
 Environment Variables:
   OPENAI_API_KEY      OpenAI API key
@@ -85,6 +94,8 @@ type ParsedArgs = {
   report: boolean;
   json: boolean;
   days?: number;
+  eval: boolean;
+  evalFile?: string;
   port?: number;
   config?: string;
 };
@@ -94,6 +105,11 @@ export function parseArgs(args: string[]): ParsedArgs {
     version: false,
     help: false,
     doctor: false,
+    doctorQuestion: undefined as string | undefined,
+    eval: false,
+    evalFile: undefined as string | undefined,
+    port: undefined as number | undefined,
+    config: undefined as string | undefined,
     doctorQuestion: undefined,
     stats: false,
     report: false,
@@ -115,6 +131,15 @@ export function parseArgs(args: string[]): ParsedArgs {
       result.doctor = true;
       result.doctorQuestion =
         args.slice(i + 1).join(" ").trim() || undefined;
+        args
+          .slice(i + 1)
+          .join(" ")
+          .trim() || undefined;
+      break;
+    } else if (arg === "eval" || arg === "--eval") {
+      result.eval = true;
+      // The next arg is the labeled JSONL path (quote paths with spaces).
+      result.evalFile = args[i + 1];
       break;
     } else if (arg === "stats") {
       result.stats = true;
@@ -239,6 +264,25 @@ async function main(): Promise<void> {
   if (args.report) {
     await runReport(args);
     process.exit(0);
+  }
+
+  if (args.eval) {
+    if (!args.evalFile) {
+      console.error("[NexusRouter] Usage: nexusrouter eval <labeled.jsonl>");
+      process.exit(1);
+    }
+    try {
+      const report = await evaluateFile(args.evalFile);
+      console.log(formatEvalReport(report));
+      console.log("\nJSON summary:");
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(0);
+    } catch (error) {
+      console.error(
+        `[NexusRouter] eval failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exit(1);
+    }
   }
 
   // Start the server

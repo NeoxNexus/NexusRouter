@@ -51,23 +51,20 @@
     "router",
     "smart-routing",
     "ai",
-    "openclaw",
-    "blockrun",
-    "x402",
-    "usdc",
     "cost-optimization",
     "openai",
     "anthropic",
     "gemini",
     "deepseek",
-    "usdc-hackathon-winner",
-    "agentic-commerce"
+    "nexusrouter",
+    "model-router",
+    "new-api"
   ],
-  "author": "BlockRun <hello@blockrun.ai>",
+  "author": "NexusRouter",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BlockRunAI/ClawRouter.git"
+    "url": "git+https://github.com/Neo/NexusRouter.git"
   },
   "dependencies": {
     "fastify": "^5.0.0",

@@ -16,8 +16,24 @@ export interface ClassificationResult {
   latency: number;
 }
 
+export interface OllamaClientOptions {
+  baseUrl?: string;
+  timeout?: number;
+  model?: string;
+}
+
 export class OllamaClient {
-  constructor(private baseUrl: string = "http://localhost:11434", private timeout: number = 1000) {}
+  private baseUrl: string;
+  private timeout: number;
+  private model: string;
+
+  constructor(options: OllamaClientOptions = {}) {
+    // 缺省值与历史行为一致：server.ts 总是显式传 config.ollama.*，
+    // 这里的默认值只在直接构造时兜底。
+    this.baseUrl = options.baseUrl ?? "http://localhost:11434";
+    this.timeout = options.timeout ?? 1000;
+    this.model = options.model ?? "qwen2.5:3b";
+  }
 
   async classify(prompt: string, context: HeuristicContext): Promise<ClassificationResult> {
     const start = Date.now();
@@ -30,10 +46,11 @@ export class OllamaClient {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "qwen2.5:3b",
+          model: this.model,
           prompt: this.buildPrompt(prompt, context),
           stream: false,
           format: "json",
+          keep_alive: "30m",
         }),
         signal: controller.signal,
       });
@@ -81,7 +98,9 @@ Context:
 - Has tools: ${hasTools}
 - Conversation length: ${convLength}
 
-User request: ${prompt}`;
+User request: ${prompt}
+
+Output only the JSON object, no explanation.`;
   }
 
   async healthCheck(): Promise<boolean> {
