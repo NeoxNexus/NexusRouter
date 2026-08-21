@@ -17,6 +17,7 @@
  */
 
 import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ensureLogDir, logFilePath, resolveLogDir } from "./paths.js";
 import { LedgerWriter } from "./accounting/ledger-writer.js";
 import type { TokenUsage } from "./pricing/price-book.js";
@@ -226,14 +227,14 @@ export type OutcomeLogEntry = {
 /**
  * Log an outcome companion record as a JSON line.
  *
- * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexusrouter/logs
+ * @param dir - override the log directory; defaults to $NEXUSROUTER_LOG_DIR or ~/.nexus-router/logs
  */
 export async function logOutcome(
   entry: OutcomeLogEntry,
   dir: string = resolveLogDir(),
 ): Promise<void> {
   try {
-    await ensureDir(dir);
+    await ensureLogDir(dir);
     const date = entry.timestamp.slice(0, 10); // YYYY-MM-DD
     const file = join(dir, `routing-outcome-${date}.jsonl`);
     await appendFile(file, JSON.stringify(entry) + "\n");

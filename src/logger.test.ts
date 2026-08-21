@@ -11,17 +11,6 @@ import {
   type OutcomeLogEntry,
 } from "./logger.js";
 
-describe("logRoutingDecision", () => {
-  let logDir: string;
-
-  beforeEach(async () => {
-    logDir = await mkdtemp(join(tmpdir(), "nexusrouter-log-"));
-  });
-
-  afterEach(async () => {
-    await rm(logDir, { recursive: true, force: true });
-  });
-
 const baseEntry: RoutingLogEntry = {
   timestamp: "2026-08-17T10:30:00.000Z",
   agent: "claude-code",

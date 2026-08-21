@@ -73,7 +73,7 @@ Examples:
   npx nexusrouter report --json
 
   # Evaluate routing accuracy against human labels
-  npx nexusrouter eval ~/.nexusrouter/logs/labeled.jsonl
+  npx nexusrouter eval ~/.nexus-router/logs/labeled.jsonl
 
 Environment Variables:
   OPENAI_API_KEY      OpenAI API key
@@ -105,16 +105,13 @@ export function parseArgs(args: string[]): ParsedArgs {
     version: false,
     help: false,
     doctor: false,
-    doctorQuestion: undefined as string | undefined,
-    eval: false,
-    evalFile: undefined as string | undefined,
-    port: undefined as number | undefined,
-    config: undefined as string | undefined,
     doctorQuestion: undefined,
     stats: false,
     report: false,
     json: false,
     days: undefined,
+    eval: false,
+    evalFile: undefined,
     port: undefined,
     config: undefined,
   };
@@ -130,7 +127,6 @@ export function parseArgs(args: string[]): ParsedArgs {
     } else if (arg === "doctor" || arg === "--doctor") {
       result.doctor = true;
       result.doctorQuestion =
-        args.slice(i + 1).join(" ").trim() || undefined;
         args
           .slice(i + 1)
           .join(" ")
@@ -168,7 +164,9 @@ export function parseArgs(args: string[]): ParsedArgs {
 }
 
 /** Ask /health whether accounting is currently degraded. */
-async function queryDegradedState(port: number): Promise<{ degraded: boolean; reason: string | null } | null> {
+async function queryDegradedState(
+  port: number,
+): Promise<{ degraded: boolean; reason: string | null } | null> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     if (!res.ok) return null;
@@ -226,7 +224,9 @@ async function runReport(args: ParsedArgs): Promise<void> {
   lines.push(`  Entries with baseline: ${stats.entriesWithBaseline}`);
   lines.push(`  Total cost:            $${stats.totalCost.toFixed(4)}`);
   lines.push(`  Baseline cost:         $${stats.totalBaselineCost.toFixed(4)}`);
-  lines.push(`  Total saved:           $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`);
+  lines.push(
+    `  Total saved:           $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`,
+  );
   lines.push(`  Avg latency:           ${stats.avgLatencyMs.toFixed(0)} ms`);
   if (report.degradedNow === true) {
     lines.push(`  ⚠️  Accounting degraded: ${report.degradedReason || "unknown reason"}`);

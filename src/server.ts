@@ -22,6 +22,8 @@ import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
 import {
   queueRoutingDecision,
+  logRoutingDecision,
+  logOutcome,
   logWriterState,
   type RoutingLogEntry,
   type UsageEntryV2,
@@ -36,11 +38,6 @@ import {
 } from "./adapter/usage-sniffer.js";
 import { logFilePath, ensureLogDir, resolveLogDir, migrateLegacyLogDir } from "./paths.js";
 import { registerDashboardRoutes } from "./dashboard/web.js";
-import { logRoutingDecision, logOutcome, type RoutingLogEntry } from "./logger.js";
-
-// Fastify only manages the single server it creates. We capture its raw
-// request handler (via serverFactory) so startServer can bind additional
-// loopback addresses (e.g. both 127.0.0.1 and ::1) to the same handler.
 declare module "fastify" {
   interface FastifyInstance {
     rawRequestHandler: RequestListener;
@@ -381,7 +378,12 @@ async function handleUnified(
             });
 
       // Step 4: Weighted fusion of hints + classifier
-      let tier = resolveWeightedTier(classifierResult, hints, weights, config.hints?.thinking ?? "off");
+      let tier = resolveWeightedTier(
+        classifierResult,
+        hints,
+        weights,
+        config.hints?.thinking ?? "off",
+      );
 
       // Guardrail floor: only raises tiers below COMPLEX (see the shared
       // computation above).
@@ -390,12 +392,6 @@ async function handleUnified(
         tier = "COMPLEX";
         contextForcedComplex = true;
       }
-      const tier = resolveWeightedTier(
-        classifierResult,
-        hints,
-        weights,
-        config.hints?.thinking ?? "off",
-      );
 
       const tierConfig = config.tiers[tier as keyof typeof config.tiers];
       if (!tierConfig) {
@@ -475,27 +471,6 @@ async function handleUnified(
     const parts = fullModel.split("/");
     let providerName: string;
 
-  // Preserve the provider/model form for pricing and baseline accounting before
-  // stripping the prefix for upstream forwarding.
-  const finalModelWithProvider = targetModel;
-
-  if (parts.length >= 2) {
-    // Explicit provider prefix: e.g. "openai/gpt-4o"
-    providerName = parts[0];
-  } else {
-    // No slash — must be an explicit model name without provider prefix
-    // This is an invalid format when not auto-routing
-    if (!shouldAutoRoute) {
-      return reply.status(400).send({
-        type: "error",
-        error: {
-          type: "invalid_request_error",
-          message: `Invalid model format: "${targetModel}". Use "provider/model" format (e.g., "openai/gpt-4o") or "auto".`,
-        },
-      });
-    }
-    providerName = protocol === "anthropic" ? "anthropic" : "openai";
-  }
     if (parts.length >= 2) {
       // Explicit provider prefix: e.g. "openai/gpt-4o"
       providerName = parts[0];
@@ -603,6 +578,9 @@ async function handleUnified(
       req.log.warn({ model: fallbackModel, status: result.status }, "Fallback attempt failed");
     }
   }
+
+  // The model that actually served the request, provider prefix included.
+  const finalModelWithProvider = servedModel ?? targetModel;
 
   if (routingLog) {
     // Queued, not awaited: batching keeps the log off the throughput ceiling

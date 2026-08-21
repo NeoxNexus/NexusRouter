@@ -5,7 +5,12 @@ import { loadConfig } from "./config/loader.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { createServer, startServer, resolveWeightedTier, resetRetryOutcomeIndex } from "./server.js";
+import {
+  createServer,
+  startServer,
+  resolveWeightedTier,
+  resetRetryOutcomeIndex,
+} from "./server.js";
 
 describe("Fastify Server", () => {
   const testConfigPath = path.join(os.tmpdir(), "test-config-server.yaml");
@@ -1570,7 +1575,13 @@ aiClassifier:
             calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
             const isClassifier = url.startsWith("http://classifier.test");
             const payload = isClassifier
-              ? { choices: [{ message: { role: "assistant", content: JSON.stringify({ tier, confidence }) } }] }
+              ? {
+                  choices: [
+                    {
+                      message: { role: "assistant", content: JSON.stringify({ tier, confidence }) },
+                    },
+                  ],
+                }
               : { id: "mock" };
             return {
               ok: true,
