@@ -1,2 +1,9 @@
 /node_modules/
 /dist/
+
+# 本地权限授权，随机器与会话变化，不入库
+/.claude/settings.local.json
+
+# npm pack / 离线分发产物
+/*.tgz
+/*.tar.gz

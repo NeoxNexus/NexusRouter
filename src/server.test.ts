@@ -5,7 +5,12 @@ import { loadConfig } from "./config/loader.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { createServer, startServer, resolveWeightedTier, resetRetryOutcomeIndex } from "./server.js";
+import {
+  createServer,
+  startServer,
+  resolveWeightedTier,
+  resetRetryOutcomeIndex,
+} from "./server.js";
 
 describe("Fastify Server", () => {
   const testConfigPath = path.join(os.tmpdir(), "test-config-server.yaml");
@@ -250,8 +255,9 @@ ollama:
 
       const entries = await readLogEntries();
       expect(entries).toHaveLength(1);
-      // requiresTools stays false: the MEDIUM tier comes from the
-      // low-confidence uncertain-upgrade fallback, not from tool presence.
+      // requiresTools stays false: MEDIUM is the heuristic baseline for a
+      // request that touches project artifacts ("src/"), not a tool-driven
+      // upgrade.
       expect(entries[0]).toMatchObject({
         agent: "claude-code",
         protocol: "anthropic",
@@ -259,7 +265,7 @@ ollama:
         hasTools: true,
         toolCount: 2,
         requiresTools: false,
-        reason: "uncertain-upgrade",
+        reason: "heuristic-uncertain",
         finalTier: "MEDIUM",
         finalModel: "anthropic/mid-model",
       });
@@ -442,7 +448,8 @@ ollama:
           messages: [
             {
               role: "user",
-              content: "<system-reminder>\nSessionStart hook additional context\n</system-reminder>",
+              content:
+                "<system-reminder>\nSessionStart hook additional context\n</system-reminder>",
             },
           ],
           tools: [{ name: "Read", input_schema: { type: "object" } }],
@@ -1324,8 +1331,8 @@ ollama:
   });
 
   it("returns the primary error without retrying when the tier has no fallbacks", async () => {
-    // "list the files in src/" lands on MEDIUM via the low-confidence
-    // uncertain-upgrade; the MEDIUM tier configures no fallback array.
+    // "list the files in src/" lands on MEDIUM via the heuristic baseline;
+    // the MEDIUM tier configures no fallback array.
     const calls = mockUpstreamSequence([
       { ok: false, status: 500, body: JSON.stringify({ error: "primary boom" }) },
     ]);
@@ -1569,7 +1576,13 @@ aiClassifier:
             calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
             const isClassifier = url.startsWith("http://classifier.test");
             const payload = isClassifier
-              ? { choices: [{ message: { role: "assistant", content: JSON.stringify({ tier, confidence }) } }] }
+              ? {
+                  choices: [
+                    {
+                      message: { role: "assistant", content: JSON.stringify({ tier, confidence }) },
+                    },
+                  ],
+                }
               : { id: "mock" };
             return {
               ok: true,
@@ -1643,7 +1656,7 @@ aiClassifier:
       const entries = await readLogEntries();
       expect(entries[0]).toMatchObject({
         layer: "fallback",
-        reason: "uncertain-upgrade",
+        reason: "heuristic-uncertain",
         finalModel: "anthropic/mid-model",
       });
     } finally {
