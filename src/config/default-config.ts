@@ -63,19 +63,20 @@ providers:
 # 转发（Anthropic 协议的请求降级时仍以 Anthropic 格式发出），因此 fallback
 # 必须与请求协议同构，或指向会做协议转换的网关；跨协议直连（如 Claude Code
 # 流量降级到 google/* 的官方端点）必然失败，配置前请确认。
+# 下方模型 ID 必须与 src/models.js 价格注册表保持一致，否则成本/基线会算不出。
 tiers:
   SIMPLE:
     primary: openai/gpt-4o-mini
-    fallback: [google/gemini-2.5-flash-lite-preview-06-05]
+    fallback: [google/gemini-2.5-flash-lite]
   MEDIUM:
     primary: openai/gpt-4o
-    fallback: [google/gemini-2.5-flash-preview-05-20]
+    fallback: [google/gemini-2.5-flash]
   COMPLEX:
-    primary: anthropic/claude-sonnet-4-20250514
-    fallback: [google/gemini-2.5-pro-preview-05-20]
+    primary: anthropic/claude-sonnet-4.6
+    fallback: [anthropic/claude-opus-4.6]
   REASONING:
     primary: openai/o3-mini
-    fallback: [anthropic/claude-haiku-3-5-20250620]
+    fallback: [openai/o3]
 
 # Ollama 本地小模型分类层（Layer 2）。enabled 是该层总开关：false 时分类器
 # 整块跳过 Layer 2，不会向 baseUrl 发任何请求，低置信流量直接落启发式兜底。
@@ -93,10 +94,12 @@ ollama:
 
 # 省钱记账：默认开启，写 usage 日志到 ~/.nexus-router/logs/，
 # 并基于 same-usage-repricing 估算反事实基线成本。
+# referenceModel 用于客户端发送 auto/free/eco/premium 等占位符时的基线定价。
 accounting:
   enabled: true
   persist: true
   baseline: requested
+  referenceModel: anthropic/claude-opus-4.6
   captureNonStreaming: true
   captureStreaming: true
   hotReload: true

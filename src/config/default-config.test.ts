@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { ConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG_YAML, getDefaultConfigPath, ensureConfigExists } from "./default-config.js";
+import { resolvePrice, isRoutingPlaceholder } from "../pricing/price-book.js";
 
 describe("default-config", () => {
   const tmpDirs: string[] = [];
@@ -71,6 +72,31 @@ describe("default-config", () => {
       // an env fallback keeps the template flexible for users who later switch
       // to a server-side fixed key.
       expect(provider.apiKey).toBe("test-key");
+    }
+  });
+
+  it("uses tier model IDs that exist in the price book", () => {
+    // If a tier points to a model with no known price, costUsd / baselineCostUsd
+    // become null and the dashboard shows "基线模式关闭或未配置" even though
+    // accounting is enabled. This regression guard catches template drift.
+    const template = parse(DEFAULT_CONFIG_YAML) as {
+      tiers?: Record<string, { primary: string; fallback?: string[] }>;
+      accounting?: { referenceModel?: string };
+    };
+    const models = new Set<string>();
+    for (const tier of Object.values(template.tiers || {})) {
+      models.add(tier.primary);
+      for (const fallback of tier.fallback || []) models.add(fallback);
+    }
+    if (template.accounting?.referenceModel) {
+      models.add(template.accounting.referenceModel);
+    }
+    expect(models.size).toBeGreaterThan(0);
+    for (const model of models) {
+      expect(isRoutingPlaceholder(model)).toBe(false);
+      const price = resolvePrice(model);
+      expect(price).not.toBeNull();
+      expect(price!.input).toBeGreaterThan(0);
     }
   });
 
