@@ -49,6 +49,8 @@ export interface ProviderConfig {
     baseUrl: string;
     apiKey: string;
     timeoutMs?: number;
+    /** When true, inject `stream_options.include_usage` into OpenAI streaming requests. */
+    injectStreamUsage?: boolean;
 }
 
 // ─── Adapter Factory (Factory Pattern) ───

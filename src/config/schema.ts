@@ -12,6 +12,13 @@ export const ProviderConfigSchema = z.object({
    * server-side config, so client keys can only reach that gateway.
    */
   passthroughApiKey: z.boolean().default(false),
+  /**
+   * When true, automatically inject `stream_options: { include_usage: true }`
+   * into OpenAI-protocol streaming requests so the upstream returns token usage
+   * in the SSE stream. Does not modify non-streaming requests or Anthropic
+   * requests. Safe opt-in: defaults to false for backward compatibility.
+   */
+  injectStreamUsage: z.boolean().default(false),
 });
 
 export const TierConfigSchema = z.object({

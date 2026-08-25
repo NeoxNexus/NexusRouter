@@ -21,10 +21,33 @@ interface OpenAIRequestBody {
     model: string;
     messages: OpenAIMessage[];
     stream?: boolean;
+    stream_options?: { include_usage?: boolean; [key: string]: unknown };
     temperature?: number;
     max_tokens?: number;
     tools?: unknown[];
     [key: string]: unknown;
+}
+
+/**
+ * Build the upstream OpenAI request body.
+ *
+ * If `injectStreamUsage` is true and the client asked for streaming, merge
+ * `stream_options.include_usage: true` so the upstream returns token usage in
+ * the SSE stream. Existing `stream_options` are preserved.
+ */
+export function buildOpenAIUpstreamBody(
+    rawBody: OpenAIRequestBody,
+    model: string,
+    injectStreamUsage?: boolean,
+): OpenAIRequestBody {
+    const upstreamBody: OpenAIRequestBody = { ...rawBody, model };
+    if (injectStreamUsage && upstreamBody.stream) {
+        upstreamBody.stream_options = {
+            ...(upstreamBody.stream_options || {}),
+            include_usage: true,
+        };
+    }
+    return upstreamBody;
 }
 
 // ─── OpenAI Adapter ───
@@ -63,12 +86,14 @@ export class OpenAIAdapter implements ProtocolAdapter {
         request: UnifiedRequest,
         providerConfig: ProviderConfig,
     ): Promise<ForwardResult> {
-        // Passthrough: forward the raw OpenAI body as-is
+        // Passthrough: forward the raw OpenAI body as-is, optionally injecting
+        // stream_options.include_usage so token usage is returned in streams.
         const rawBody = request.rawBody as OpenAIRequestBody;
-        const upstreamBody = {
-            ...rawBody,
-            model: request.model, // Use router-selected model
-        };
+        const upstreamBody = buildOpenAIUpstreamBody(
+            rawBody,
+            request.model,
+            providerConfig.injectStreamUsage,
+        );
 
         const baseUrl = providerConfig.baseUrl.replace(/\/+$/, "");
         const url = `${baseUrl}/chat/completions`;

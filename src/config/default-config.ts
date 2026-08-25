@@ -46,6 +46,8 @@ providers:
     # 客户端（Claude Code / Codex / OpenAI SDK 等）需在请求头中自带
     # Authorization: Bearer <key>，NexusRouter 会原样转发给上游。
     # 如需改为服务端固定 key，请关闭 passthroughApiKey 并填写 apiKey。
+    # injectStreamUsage: true 时，自动给 OpenAI 流式请求加上
+    # stream_options.include_usage=true，让上游返回 token usage。
     apiKey: \${OPENAI_API_KEY:-}
     passthroughApiKey: true
     maxRetries: 3

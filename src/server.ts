@@ -530,6 +530,7 @@ async function handleUnified(
         baseUrl: providerConfig.baseUrl || getDefaultProviderUrl(providerName),
         apiKey,
         timeoutMs: config.router?.timeout || 300_000,
+        injectStreamUsage: providerConfig.injectStreamUsage,
       },
     );
     return { ok: true, result };

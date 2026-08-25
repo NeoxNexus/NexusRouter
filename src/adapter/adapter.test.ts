@@ -1,7 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { detectProtocol, extractAgentFromPath } from "./adapter.js";
 import { AnthropicAdapter } from "./anthropic.js";
-import { OpenAIAdapter } from "./openai.js";
+import { OpenAIAdapter, buildOpenAIUpstreamBody } from "./openai.js";
 import {
     claudeCodeProfile,
     openClawProfile,
@@ -156,6 +156,40 @@ describe("OpenAIAdapter.toUnified", () => {
     test("detects streaming", () => {
         const unified = adapter.toUnified(makeOpenAIBody({ stream: true }), emptyHeaders);
         expect(unified.stream).toBe(true);
+    });
+});
+
+describe("buildOpenAIUpstreamBody", () => {
+    test("replaces model while preserving other fields", () => {
+        const body = makeOpenAIBody({ stream: true });
+        const upstream = buildOpenAIUpstreamBody(body, "openai/gpt-4o-mini", false);
+        expect(upstream.model).toBe("openai/gpt-4o-mini");
+        expect(upstream.stream).toBe(true);
+        expect(upstream.messages).toEqual(body.messages);
+    });
+
+    test("does not inject stream_options for non-streaming requests", () => {
+        const body = makeOpenAIBody();
+        const upstream = buildOpenAIUpstreamBody(body, "openai/gpt-4o-mini", true);
+        expect(upstream.stream_options).toBeUndefined();
+    });
+
+    test("injects include_usage when injectStreamUsage is true and stream is true", () => {
+        const body = makeOpenAIBody({ stream: true });
+        const upstream = buildOpenAIUpstreamBody(body, "openai/gpt-4o-mini", true);
+        expect(upstream.stream_options).toEqual({ include_usage: true });
+    });
+
+    test("preserves existing stream_options when injecting include_usage", () => {
+        const body = makeOpenAIBody({ stream: true, stream_options: { foo: "bar" } });
+        const upstream = buildOpenAIUpstreamBody(body, "openai/gpt-4o-mini", true);
+        expect(upstream.stream_options).toEqual({ foo: "bar", include_usage: true });
+    });
+
+    test("overrides client-provided include_usage: false when injectStreamUsage is enabled", () => {
+        const body = makeOpenAIBody({ stream: true, stream_options: { include_usage: false } });
+        const upstream = buildOpenAIUpstreamBody(body, "openai/gpt-4o-mini", true);
+        expect(upstream.stream_options).toEqual({ include_usage: true });
     });
 });
 
