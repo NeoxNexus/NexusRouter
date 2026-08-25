@@ -17,7 +17,7 @@ interface OpenAIMessage {
     content: string;
 }
 
-interface OpenAIRequestBody {
+export interface OpenAIRequestBody {
     model: string;
     messages: OpenAIMessage[];
     stream?: boolean;

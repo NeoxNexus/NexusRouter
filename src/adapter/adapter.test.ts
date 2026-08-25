@@ -2,6 +2,7 @@ import { describe, test, expect } from "vitest";
 import { detectProtocol, extractAgentFromPath } from "./adapter.js";
 import { AnthropicAdapter } from "./anthropic.js";
 import { OpenAIAdapter, buildOpenAIUpstreamBody } from "./openai.js";
+import type { OpenAIRequestBody } from "./openai.js";
 import {
     claudeCodeProfile,
     openClawProfile,
@@ -22,10 +23,10 @@ function makeAnthropicBody(overrides = {}) {
     };
 }
 
-function makeOpenAIBody(overrides = {}) {
+function makeOpenAIBody(overrides: Partial<OpenAIRequestBody> = {}): OpenAIRequestBody {
     return {
         model: "gpt-4o",
-        messages: [{ role: "user", content: "Hello" }],
+        messages: [{ role: "user" as const, content: "Hello" }],
         ...overrides,
     };
 }

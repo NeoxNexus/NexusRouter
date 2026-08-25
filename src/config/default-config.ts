@@ -107,11 +107,6 @@ accounting:
   captureNonStreaming: true
   captureStreaming: true
   hotReload: true
-  priceOverrides:
-    # 示例：按你网关的真实单价（每 1M tokens 的货币单位）修改
-    # anthropic/claude-opus-4.6:
-    #   input: 30.0
-    #   output: 180.0
 `;
 
 /**
