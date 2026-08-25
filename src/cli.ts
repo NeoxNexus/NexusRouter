@@ -237,10 +237,10 @@ async function runReport(args: ParsedArgs): Promise<void> {
     lines.push(`  Truncated streams:     ${stats.truncatedRequests}`);
   }
   lines.push(`  Entries with baseline: ${stats.entriesWithBaseline}`);
-  lines.push(`  Total cost:            $${stats.totalCost.toFixed(4)}`);
-  lines.push(`  Baseline cost:         $${stats.totalBaselineCost.toFixed(4)}`);
+  lines.push(`  Total cost:            ¥${stats.totalCost.toFixed(4)}`);
+  lines.push(`  Baseline cost:         ¥${stats.totalBaselineCost.toFixed(4)}`);
   lines.push(
-    `  Total saved:           $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`,
+    `  Total saved:           ¥${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`,
   );
   lines.push(`  Avg latency:           ${stats.avgLatencyMs.toFixed(0)} ms`);
   if (report.degradedNow === true) {

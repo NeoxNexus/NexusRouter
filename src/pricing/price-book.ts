@@ -44,7 +44,7 @@ export type CacheMultipliers = {
   cacheWrite1h: number;
 };
 
-/** A fully resolved price: USD per 1M tokens plus cache multipliers. */
+/** A fully resolved price: currency units per 1M tokens plus cache multipliers. */
 export type ModelPrice = { input: number; output: number } & CacheMultipliers;
 
 /** Per-deployment price entry. Multipliers are optional and default to Anthropic's. */
@@ -180,7 +180,7 @@ function tokens(n: number): number {
 }
 
 /**
- * Cost of one request in USD, or `null` if the model's price is unknown.
+ * Cost of one request in the configured currency units, or `null` if the model's price is unknown.
  *
  * Pure function: no I/O, no clock, no config reads beyond the `overrides` it is
  * handed, so it is fully unit-testable and safe to call on the request path.

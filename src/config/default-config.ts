@@ -94,6 +94,8 @@ ollama:
 
 # 省钱记账：默认开启，写 usage 日志到 ~/.nexus-router/logs/，
 # 并基于 same-usage-repricing 估算反事实基线成本。
+# priceOverrides 中按你实际使用的货币单位填写（例如 CNY/人民币），
+# 大屏、stats、report 统一显示 ¥ 符号。
 # referenceModel 用于客户端发送 auto/free/eco/premium 等占位符时的基线定价。
 accounting:
   enabled: true
@@ -103,6 +105,11 @@ accounting:
   captureNonStreaming: true
   captureStreaming: true
   hotReload: true
+  priceOverrides:
+    # 示例：按你网关的真实单价（每 1M tokens 的货币单位）修改
+    # anthropic/claude-opus-4.6:
+    #   input: 30.0
+    #   output: 180.0
 `;
 
 /**

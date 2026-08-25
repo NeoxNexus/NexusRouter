@@ -45,7 +45,7 @@ function formatRecent(entry: ParsedUsageEntry): {
     ? `${(usage.inputUncached + usage.cacheRead + usage.output).toLocaleString("en-US")}/${usage.output.toLocaleString("en-US")}`
     : "—";
   const cache = usage ? `${usage.cacheRead.toLocaleString("en-US")} r` : "—";
-  const cost = entry.cost === null ? "—" : `$${entry.cost.toFixed(4)}`;
+  const cost = entry.cost === null ? "—" : `¥${entry.cost.toFixed(4)}`;
   const latency = `${entry.latencyMs.toLocaleString("en-US")} ms`;
   return {
     time,
@@ -350,7 +350,7 @@ const HTML = `<!DOCTYPE html>
       var rows = Object.entries(agg.byModel).sort(function(a, b) { return b[1].count - a[1].count; }).slice(0, 8);
       document.getElementById('models').innerHTML = rows.map(function(item) {
         var m = item[0], d = item[1];
-        return '<tr><td>' + m + '</td><td class="right">' + pad(d.count) + '</td><td class="right">$' + fmt(d.cost) + '</td></tr>';
+        return '<tr><td>' + m + '</td><td class="right">' + pad(d.count) + '</td><td class="right">¥' + fmt(d.cost) + '</td></tr>';
       }).join('') || '<tr><td colspan="3">—</td></tr>';
     }
 
@@ -377,7 +377,7 @@ const HTML = `<!DOCTYPE html>
       ps.textContent = '落盘: ' + (router.persist ? 'ON' : 'OFF');
 
       document.getElementById('reqs').textContent = pad(agg.totalRequests);
-      document.getElementById('cost').textContent = '$' + fmt(agg.totalCost);
+      document.getElementById('cost').textContent = '¥' + fmt(agg.totalCost);
 
       var srcParts = [];
       if (agg.upstreamRequests) srcParts.push(pad(agg.upstreamRequests) + ' 上游');
@@ -390,9 +390,9 @@ const HTML = `<!DOCTYPE html>
       var heroRatio = document.getElementById('hero-ratio');
       if (data.baselineMode !== 'off' && agg.entriesWithBaseline > 0) {
         baselineRow.style.display = 'flex';
-        document.getElementById('baseline').textContent = '$' + fmt(agg.totalBaselineCost);
+        document.getElementById('baseline').textContent = '¥' + fmt(agg.totalBaselineCost);
         var ratio = agg.totalBaselineCost > 0 ? ((agg.totalSavings / agg.totalBaselineCost) * 100).toFixed(1) : '0.0';
-        heroSaved.textContent = '$' + fmt(agg.totalSavings);
+        heroSaved.textContent = '¥' + fmt(agg.totalSavings);
         heroRatio.textContent = '对比基线节省 ' + ratio + '% · 基于 same-usage-repricing 估算';
       } else {
         baselineRow.style.display = 'none';

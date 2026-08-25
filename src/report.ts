@@ -31,9 +31,9 @@ function formatMarkdownReport(period: ReportPeriod, days: number, stats: Aggrega
   lines.push(`| Metric | Value |`);
   lines.push(`|--------|-------|`);
   lines.push(`| Total Requests | ${stats.totalRequests} |`);
-  lines.push(`| Total Cost | $${stats.totalCost.toFixed(4)} |`);
-  lines.push(`| Baseline Cost | $${stats.totalBaselineCost.toFixed(4)} |`);
-  lines.push(`| **Savings** | **$${stats.totalSavings.toFixed(4)}** |`);
+  lines.push(`| Total Cost | ¥${stats.totalCost.toFixed(4)} |`);
+  lines.push(`| Baseline Cost | ¥${stats.totalBaselineCost.toFixed(4)} |`);
+  lines.push(`| **Savings** | **¥${stats.totalSavings.toFixed(4)}** |`);
   lines.push(`| Savings % | ${stats.savingsPercentage.toFixed(1)}% |`);
   lines.push(`| Avg Latency | ${stats.avgLatencyMs.toFixed(0)}ms |`);
   lines.push("");
@@ -44,7 +44,7 @@ function formatMarkdownReport(period: ReportPeriod, days: number, stats: Aggrega
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10);
   for (const [model, data] of sortedModels) {
-    lines.push(`- ${model}: ${data.count} reqs, $${data.cost.toFixed(4)}`);
+    lines.push(`- ${model}: ${data.count} reqs, ¥${data.cost.toFixed(4)}`);
   }
   lines.push("");
 

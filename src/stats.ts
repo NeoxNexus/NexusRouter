@@ -288,8 +288,8 @@ export function formatStatsAscii(stats: AggregatedStats): string {
   // Summary
   lines.push(`║  Period: ${stats.period.padEnd(49)}║`);
   lines.push(`║  Total Requests: ${stats.totalRequests.toString().padEnd(41)}║`);
-  lines.push(`║  Total Cost: $${stats.totalCost.toFixed(4).padEnd(43)}║`);
-  lines.push(`║  Baseline Cost: $${stats.totalBaselineCost.toFixed(4).padEnd(43)}║`);
+  lines.push(`║  Total Cost: ¥${stats.totalCost.toFixed(4).padEnd(43)}║`);
+  lines.push(`║  Baseline Cost: ¥${stats.totalBaselineCost.toFixed(4).padEnd(43)}║`);
 
   // Usage-source breakdown
   lines.push("╠════════════════════════════════════════════════════════════╣");
@@ -300,7 +300,7 @@ export function formatStatsAscii(stats: AggregatedStats): string {
   }
 
   // Show savings with note if some entries lack baseline tracking
-  const savingsLine = `║  💰 Total Saved: $${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`;
+  const savingsLine = `║  💰 Total Saved: ¥${stats.totalSavings.toFixed(4)} (${stats.savingsPercentage.toFixed(1)}%)`;
   if (stats.entriesWithBaseline < stats.totalRequests && stats.entriesWithBaseline > 0) {
     lines.push(savingsLine.padEnd(61) + "║");
     const note = `║     (based on ${stats.entriesWithBaseline}/${stats.totalRequests} tracked requests)`;
@@ -340,7 +340,7 @@ export function formatStatsAscii(stats: AggregatedStats): string {
 
   for (const [model, data] of sortedModels) {
     const shortModel = model.length > 25 ? model.slice(0, 22) + "..." : model;
-    const line = `║    ${shortModel.padEnd(25)} ${data.count.toString().padStart(5)} reqs  $${data.cost.toFixed(4)}`;
+    const line = `║    ${shortModel.padEnd(25)} ${data.count.toString().padStart(5)} reqs  ¥${data.cost.toFixed(4)}`;
     lines.push(line.padEnd(61) + "║");
   }
 
@@ -352,7 +352,7 @@ export function formatStatsAscii(stats: AggregatedStats): string {
 
     for (const day of stats.dailyBreakdown.slice(-7)) {
       const saved = day.totalBaselineCost - day.totalCost;
-      const line = `║    ${day.date}   ${day.totalRequests.toString().padStart(6)}    $${day.totalCost.toFixed(4).padStart(8)}  $${saved.toFixed(4)}`;
+      const line = `║    ${day.date}   ${day.totalRequests.toString().padStart(6)}    ¥${day.totalCost.toFixed(4).padStart(8)}  ¥${saved.toFixed(4)}`;
       lines.push(line.padEnd(61) + "║");
     }
   }

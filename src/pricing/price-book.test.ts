@@ -14,9 +14,9 @@ function usage(partial: Partial<TokenUsage> = {}): TokenUsage {
 }
 
 // Registry prices this suite pins against (src/models.ts):
-//   anthropic/claude-opus-4.6   $5 / $25 per 1M
-//   anthropic/claude-sonnet-4.6 $3 / $15
-//   openai/gpt-4o-mini          $0.15 / $0.6
+//   anthropic/claude-opus-4.6   5 / 25 per 1M
+//   anthropic/claude-sonnet-4.6 3 / 15
+//   openai/gpt-4o-mini          0.15 / 0.6
 describe("resolvePrice", () => {
   it("returns registry prices with cache multipliers filled in", () => {
     expect(resolvePrice("anthropic/claude-opus-4.6")).toEqual({
@@ -43,7 +43,7 @@ describe("resolvePrice", () => {
 
   it("refuses to price routing meta-models", () => {
     // `auto` / `eco` / `premium` carry inputPrice 0 in the registry because they
-    // are placeholders the router replaces. Pricing them would report $0 for a
+    // are placeholders the router replaces. Pricing them would report 0 for a
     // request that really cost money.
     for (const meta of ["auto", "eco", "premium", "free"]) {
       expect(resolvePrice(meta)).toBeNull();
