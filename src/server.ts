@@ -35,6 +35,7 @@ import {
   createUsageSniffer,
   extractAnthropicNonStreamingUsage,
   extractOpenAINonStreamingUsage,
+  applyFallbackEstimation,
 } from "./adapter/usage-sniffer.js";
 import { logFilePath, ensureLogDir, resolveLogDir, migrateLegacyLogDir } from "./paths.js";
 import { registerDashboardRoutes } from "./dashboard/web.js";
@@ -201,10 +202,23 @@ type RecordUsageInput = {
   capture: UsageCapture;
   latencyMs: number;
   accounting: AccountingSwitch;
+  /** Raw request body for token estimation fallback. */
+  rawBody?: unknown;
+  /** Non-streaming response body for output estimation fallback. */
+  responseBody?: string;
+  /** Streaming bytes forwarded for output estimation fallback. */
+  responseBytes?: number;
 };
 
 function recordUsage(input: RecordUsageInput): void {
   if (!input.accounting.persist || !input.accounting.ledgerWriter) return;
+
+  const capture = applyFallbackEstimation(input.capture, {
+    estimateMissingTokens: input.accounting.estimateMissingTokens,
+    rawBody: input.rawBody,
+    responseBody: input.responseBody,
+    responseBytes: input.responseBytes,
+  });
 
   const costUsd = costOf(
     input.capture.usage,
@@ -604,8 +618,9 @@ async function handleUnified(
 
   // Step 6: Stream or return
   let parsedBody: unknown;
+  let bodyStr: string | undefined;
   if (!result.isStream || typeof result.body === "string") {
-    const bodyStr = result.body as string;
+    bodyStr = result.body as string;
     try {
       parsedBody = JSON.parse(bodyStr);
     } catch {
@@ -627,6 +642,8 @@ async function handleUnified(
       capture,
       latencyMs: Date.now() - startedAt,
       accounting,
+      rawBody: unified.rawBody,
+      responseBody: bodyStr,
     });
   }
 
@@ -667,12 +684,13 @@ async function handleUnified(
         capture,
         latencyMs: Date.now() - startedAt,
         accounting,
+        rawBody: unified.rawBody,
+        responseBytes: sniffer.totalBytes,
       });
     }
     return;
   }
 
-  const bodyStr = result.body as string;
   try {
     return reply.status(result.status).send(parsedBody ?? bodyStr);
   } catch {

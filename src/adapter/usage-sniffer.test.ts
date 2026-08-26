@@ -6,7 +6,9 @@ import {
   extractOpenAINonStreamingUsage,
   extractAnthropicStreamUsage,
   extractOpenAIStreamUsage,
+  applyFallbackEstimation,
 } from "./usage-sniffer.js";
+import { emptyUsage } from "../pricing/price-book.js";
 
 function bytes(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -201,6 +203,101 @@ describe("OpenAI streaming usage", () => {
   });
 });
 
+describe("Stream parsers ignore empty usage blocks", () => {
+  it("treats Anthropic message_delta without usage as estimated", () => {
+    const result = extractAnthropicStreamUsage(
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+    );
+    expect(result.usageSource).toBe("estimated");
+    expect(result.usage).toEqual(emptyUsage());
+  });
+
+  it("treats OpenAI final chunk with zero usage as estimated", () => {
+    const result = extractOpenAIStreamUsage(
+      'data: {"usage":{"prompt_tokens":0,"completion_tokens":0}}\n\ndata: [DONE]\n\n',
+    );
+    expect(result.usageSource).toBe("estimated");
+    expect(result.usage).toEqual(emptyUsage());
+  });
+});
+
+describe("applyFallbackEstimation", () => {
+  it("leaves upstream usage untouched", () => {
+    const capture = {
+      usage: { inputUncached: 10, output: 5, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+      usageSource: "upstream" as const,
+      truncated: false,
+    };
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: true,
+      rawBody: { messages: [{ content: "x".repeat(1000) }] },
+      responseBytes: 1000,
+    });
+    expect(result).toEqual(capture);
+  });
+
+  it("does nothing when estimation is disabled", () => {
+    const capture = {
+      usage: emptyUsage(),
+      usageSource: "estimated" as const,
+      truncated: false,
+    };
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: false,
+      rawBody: { messages: [{ content: "hello" }] },
+      responseBytes: 100,
+    });
+    expect(result.usage.inputUncached).toBe(0);
+    expect(result.usage.output).toBe(0);
+  });
+
+  it("estimates input and output from request/response length", () => {
+    const capture = {
+      usage: emptyUsage(),
+      usageSource: "estimated" as const,
+      truncated: false,
+    };
+    const rawBody = { messages: [{ content: "x".repeat(40) }] };
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: true,
+      rawBody,
+      responseBody: "y".repeat(20),
+    });
+    expect(result.usage.inputUncached).toBeGreaterThan(0);
+    expect(result.usage.output).toBeGreaterThan(0);
+    expect(result.usageSource).toBe("estimated");
+  });
+
+  it("estimates output from stream bytes when responseBody is absent", () => {
+    const capture = {
+      usage: emptyUsage(),
+      usageSource: "estimated" as const,
+      truncated: false,
+    };
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: true,
+      rawBody: { messages: [{ content: "hi" }] },
+      responseBytes: 40,
+    });
+    expect(result.usage.output).toBeGreaterThan(0);
+  });
+
+  it("preserves upstream input while estimating missing output for partial captures", () => {
+    const capture = {
+      usage: { inputUncached: 100, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+      usageSource: "partial" as const,
+      truncated: false,
+    };
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: true,
+      rawBody: {},
+      responseBytes: 80,
+    });
+    expect(result.usage.inputUncached).toBe(100);
+    expect(result.usage.output).toBeGreaterThan(0);
+  });
+});
+
 describe("TailWindow performance regression gate", () => {
   it("handles 800 chunks / ~191KB within the budget", () => {
     const sniffer = createUsageSniffer("anthropic", 4096);
@@ -275,11 +372,7 @@ describe("TailWindow extraction helpers", () => {
     for (let i = 0; i < 100; i++) {
       w.push(bytes(`data: {"index":${i}}\n\n`));
     }
-    w.push(
-      bytes(
-        'data: {"usage":{"prompt_tokens":10,"completion_tokens":5}}\n\ndata: [DONE]\n\n',
-      ),
-    );
+    w.push(bytes('data: {"usage":{"prompt_tokens":10,"completion_tokens":5}}\n\ndata: [DONE]\n\n'));
     const result = extractOpenAIStreamUsage(w.text());
     expect(result.usage.output).toBe(5);
     expect(result.usageSource).toBe("upstream");

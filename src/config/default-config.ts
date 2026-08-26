@@ -106,6 +106,8 @@ accounting:
   referenceModel: anthropic/claude-opus-4.6
   captureNonStreaming: true
   captureStreaming: true
+  # 当上游不返回 usage 时，按请求/响应文本长度估算 token，避免大屏全 0
+  estimateMissingTokens: true
   hotReload: true
 `;
 

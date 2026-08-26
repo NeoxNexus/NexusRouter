@@ -19,8 +19,9 @@
  *   only pushes into the tail window.
  *
  * OpenAI SSE only reports usage when the client sent `stream_options.include_usage`.
- * We deliberately do NOT inject that option (zero-perception upgrade 红线), so
- * the common case is `usageSource: "estimated"`.
+ * Some gateways strip or zero-out usage events; when `estimateMissingTokens` is
+ * enabled the caller can fall back to text-length estimation so the ledger never
+ * records all-zero usage for a real request.
  */
 
 import { emptyUsage, type TokenUsage } from "../pricing/price-book.js";
@@ -39,14 +40,22 @@ export class TailWindow {
   private pos = 0;
   /** Logical bytes written into the window (capped at buf.length). */
   private size = 0;
+  /** Total bytes ever pushed (including bytes that fell out of the window). */
+  private total = 0;
 
   constructor(bytes: number) {
     this.buf = new Uint8Array(bytes);
   }
 
+  /** Total bytes pushed since construction. */
+  get totalBytes(): number {
+    return this.total;
+  }
+
   /** Direct write into the pre-allocated buffer. */
   push(chunk: Uint8Array): void {
     if (chunk.length === 0) return;
+    this.total += chunk.length;
 
     if (chunk.length >= this.buf.length) {
       // Chunk is larger than the window: keep only the trailing bytes. Align to
@@ -91,6 +100,19 @@ export class TailWindow {
 
 function safeInt(n: unknown): number {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** True when a usage object contains at least one positive token count. */
+function hasPositiveUsage(usage: Record<string, unknown>): boolean {
+  return (
+    safeInt(usage.input_tokens) > 0 ||
+    safeInt(usage.output_tokens) > 0 ||
+    safeInt(usage.prompt_tokens) > 0 ||
+    safeInt(usage.completion_tokens) > 0 ||
+    safeInt(usage.cache_read_input_tokens) > 0 ||
+    safeInt(usage.cache_creation_input_tokens) > 0 ||
+    safeInt((usage.prompt_tokens_details as Record<string, unknown> | undefined)?.cached_tokens) > 0
+  );
 }
 
 function parseAnthropicUsage(data: Record<string, unknown>): TokenUsage {
@@ -145,11 +167,16 @@ export function extractOpenAINonStreamingUsage(body: unknown): UsageCapture {
 
 export function extractAnthropicStreamUsage(tailText: string): UsageCapture {
   // Final event is `message_delta`; look for the last one in the tail.
-  const deltaMatch = tailText.match(/event:\s*message_delta\s+data:\s*(\{[\s\S]*?\})(?=\s*\n\nevent:|\s*$)/);
+  const deltaMatch = tailText.match(
+    /event:\s*message_delta\s+data:\s*(\{[\s\S]*?\})(?=\s*\n\nevent:|\s*$)/,
+  );
   if (deltaMatch) {
     try {
       const data = JSON.parse(deltaMatch[1]) as Record<string, unknown>;
-      return { usage: parseAnthropicUsage(data), usageSource: "upstream", truncated: false };
+      const usage = (data.usage as Record<string, unknown>) || {};
+      if (hasPositiveUsage(usage)) {
+        return { usage: parseAnthropicUsage(data), usageSource: "upstream", truncated: false };
+      }
     } catch {
       // Fall through to estimated.
     }
@@ -168,7 +195,7 @@ export function extractOpenAIStreamUsage(tailText: string): UsageCapture {
       try {
         const data = JSON.parse(payload) as Record<string, unknown>;
         const usage = (data.usage as Record<string, unknown>) || {};
-        if (usage && typeof usage === "object" && "prompt_tokens" in usage) {
+        if (usage && typeof usage === "object" && hasPositiveUsage(usage)) {
           const promptDetails = (usage.prompt_tokens_details as Record<string, unknown>) || {};
           const promptTokens = safeInt(usage.prompt_tokens);
           const cached = safeInt(promptDetails.cached_tokens);
@@ -192,10 +219,64 @@ export function extractOpenAIStreamUsage(tailText: string): UsageCapture {
   return { usage: emptyUsage(), usageSource: "estimated", truncated: false };
 }
 
+export type FallbackEstimationOptions = {
+  /** Master switch: do nothing when false. */
+  estimateMissingTokens: boolean;
+  /** Raw request body; used to estimate input tokens from JSON length. */
+  rawBody?: unknown;
+  /** Non-streaming response body string; used to estimate output tokens. */
+  responseBody?: string;
+  /** Streaming total bytes; used to estimate output tokens when responseBody is absent. */
+  responseBytes?: number;
+  /** Characters per token for the crude length estimate (default 4). */
+  charsPerToken?: number;
+};
+
+/** Estimate tokens from text length when upstream usage is missing or empty. */
+export function applyFallbackEstimation(
+  capture: UsageCapture,
+  opts: FallbackEstimationOptions,
+): UsageCapture {
+  if (!opts.estimateMissingTokens || capture.usageSource === "upstream") return capture;
+
+  const charsPerToken = opts.charsPerToken ?? 4;
+  const requestText = opts.rawBody !== undefined ? JSON.stringify(opts.rawBody) : "";
+  const estimatedInput =
+    requestText.length > 0 ? Math.max(1, Math.ceil(requestText.length / charsPerToken)) : 0;
+
+  let estimatedOutput = 0;
+  if (opts.responseBody !== undefined && opts.responseBody.length > 0) {
+    estimatedOutput = Math.max(1, Math.ceil(opts.responseBody.length / charsPerToken));
+  } else if (opts.responseBytes !== undefined && opts.responseBytes > 0) {
+    estimatedOutput = Math.max(1, Math.ceil(opts.responseBytes / charsPerToken));
+  }
+
+  const usage: TokenUsage = { ...capture.usage };
+  let changed = false;
+
+  const inputEmpty =
+    usage.inputUncached === 0 &&
+    usage.cacheRead === 0 &&
+    usage.cacheWrite5m === 0 &&
+    usage.cacheWrite1h === 0;
+  if (inputEmpty && estimatedInput > 0) {
+    usage.inputUncached = estimatedInput;
+    changed = true;
+  }
+  if (usage.output === 0 && estimatedOutput > 0) {
+    usage.output = estimatedOutput;
+    changed = true;
+  }
+
+  if (!changed) return capture;
+  return { ...capture, usage, usageSource: "estimated" };
+}
+
 /** Common interface for streaming capture. */
 export type UsageSniffer = {
   push(chunk: Uint8Array): void;
   finish(truncated?: boolean): UsageCapture;
+  readonly totalBytes: number;
 };
 
 class AnthropicStreamSniffer implements UsageSniffer {
@@ -206,6 +287,10 @@ class AnthropicStreamSniffer implements UsageSniffer {
 
   constructor(tailBytes: number) {
     this.tail = new TailWindow(tailBytes);
+  }
+
+  get totalBytes(): number {
+    return this.tail.totalBytes;
   }
 
   push(chunk: Uint8Array): void {
@@ -220,9 +305,8 @@ class AnthropicStreamSniffer implements UsageSniffer {
         try {
           const data = JSON.parse(match[1]) as Record<string, unknown>;
           const usage = (data.message as Record<string, unknown>)?.usage as
-            | Record<string, unknown>
-            | undefined;
-          if (usage && typeof usage === "object" && "input_tokens" in usage) {
+            Record<string, unknown> | undefined;
+          if (usage && typeof usage === "object" && hasPositiveUsage(usage)) {
             this.inputTokens = safeInt(usage.input_tokens);
           }
         } catch {
@@ -270,6 +354,10 @@ class OpenAIStreamSniffer implements UsageSniffer {
     this.tail = new TailWindow(tailBytes);
   }
 
+  get totalBytes(): number {
+    return this.tail.totalBytes;
+  }
+
   push(chunk: Uint8Array): void {
     this.tail.push(chunk);
   }
@@ -280,7 +368,10 @@ class OpenAIStreamSniffer implements UsageSniffer {
   }
 }
 
-export function createUsageSniffer(protocol: "anthropic" | "openai", tailBytes: number): UsageSniffer {
+export function createUsageSniffer(
+  protocol: "anthropic" | "openai",
+  tailBytes: number,
+): UsageSniffer {
   if (protocol === "anthropic") return new AnthropicStreamSniffer(tailBytes);
   return new OpenAIStreamSniffer(tailBytes);
 }

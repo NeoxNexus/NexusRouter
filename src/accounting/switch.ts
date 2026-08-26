@@ -41,7 +41,10 @@ export type AccountingSwitchOptions = {
   /** Inject a console-like logger for warnings. */
   onWarn?: (message: string) => void;
   /** Inject an fs.watch implementation for tests. */
-  watchImpl?: (path: string, listener: (event: string, filename: string | null) => void) => FSWatcher;
+  watchImpl?: (
+    path: string,
+    listener: (event: string, filename: string | null) => void,
+  ) => FSWatcher;
 };
 
 const RELOAD_DEBOUNCE_MS = 200;
@@ -89,9 +92,7 @@ export class AccountingSwitch {
 
   /** True when the current request may be persisted. */
   get persist(): boolean {
-    return (
-      this.config.enabled && this.config.persist && !(this.writer?.degraded ?? false)
-    );
+    return this.config.enabled && this.config.persist && !(this.writer?.degraded ?? false);
   }
 
   /** Baseline strategy from config. */
@@ -117,6 +118,11 @@ export class AccountingSwitch {
   /** Tail-window size in bytes. */
   get tailWindowBytes(): number {
     return this.config.tailWindowBytes;
+  }
+
+  /** Whether to estimate tokens when upstream usage is missing/empty. */
+  get estimateMissingTokens(): boolean {
+    return this.config.estimateMissingTokens;
   }
 
   /** The ledger writer, or null when persistence is disabled / degraded. */

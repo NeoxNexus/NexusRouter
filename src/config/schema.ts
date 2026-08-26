@@ -143,6 +143,13 @@ export const AccountingConfigSchema = z.object({
   redactPrompts: z.boolean().default(false),
   /** Streaming usage-sniffer tail window size in bytes. */
   tailWindowBytes: z.number().default(4096),
+  /**
+   * When true and the upstream does not report token usage (or reports an empty
+   * usage block), fall back to estimating tokens from request/response text
+   * length so the dashboard never shows all-zero usage for gateway models that
+   * omit usage events. Existing upstream-reported usage is always preserved.
+   */
+  estimateMissingTokens: z.boolean().default(false),
   /** Batch-flush line threshold. */
   flushLines: z.number().default(64),
   /** Batch-flush timeout in ms. */
