@@ -116,7 +116,7 @@ describe("HybridClassifier", () => {
 
       expect(mockFetch).not.toHaveBeenCalled();
       expect(result.layer).toBe("fallback");
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.reason).toBe("heuristic-uncertain");
       expect(result.tier).toBe("MEDIUM");
     });
 
@@ -229,27 +229,26 @@ describe("HybridClassifier", () => {
       expect(result.confidence).toBeLessThanOrEqual(1);
     });
 
-    it("should consider messageCount in heuristic classification", async () => {
+    it("does not let messageCount change the tier (D-002)", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      // 「你好」现在命中 Layer 0 中文问候规则，无法再到达启发式层；
-      // 改用无关键词的中性句来观察 messageCount 的影响。
-      // 单轮简单消息
+      // 「你好」命中 Layer 0 中文问候规则，无法到达启发式层；用无关键词
+      // 的中性句观察 messageCount 的影响。
       const singleResult = await classifier.classify("帮我处理一下这个数据", {
         messageCount: 1,
         hasSystemPrompt: false,
       });
 
-      // 多轮相同消息
       const multiResult = await classifier.classify("帮我处理一下这个数据", {
         messageCount: 20,
         hasSystemPrompt: false,
       });
 
-      // 启发式层给出 SIMPLE，但低置信兜底会升一档 → MEDIUM
+      // 会话长度只调置信度：真实 CC 流量 161/165 条都是长会话，恒定的信号
+      // 不含难度信息。原先长会话会把档位顶上去，那是棘轮的第一级。
+      // （置信度差在此不可见：兜底路径统一压成 0.5，标记「这一层拿不准」。）
       expect(singleResult.tier).toBe("MEDIUM");
-      // 多轮（long）使启发式层先升到 MEDIUM，兜底再升一档 → COMPLEX
-      expect(multiResult.tier).toBe("COMPLEX");
+      expect(multiResult.tier).toBe("MEDIUM");
     });
 
     it("should handle reference to previous context", async () => {
@@ -360,13 +359,10 @@ describe("HybridClassifier", () => {
     it("should detect reasoning keywords like prove, theorem", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify(
-        "Prove that the sum of two even numbers is even",
-        {
-          messageCount: 1,
-          hasSystemPrompt: false,
-        },
-      );
+      const result = await classifier.classify("Prove that the sum of two even numbers is even", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
 
       // 包含证明/定理关键词应该触发 REASONING
       expect(result.tier).toBe("REASONING");
@@ -375,13 +371,10 @@ describe("HybridClassifier", () => {
     it("should detect mathematical keywords", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify(
-        "Calculate the derivative of f(x) = x^2 + 2x",
-        {
-          messageCount: 1,
-          hasSystemPrompt: false,
-        },
-      );
+      const result = await classifier.classify("Calculate the derivative of f(x) = x^2 + 2x", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
 
       // 数学计算应该触发 REASONING
       expect(result.tier).toBe("REASONING");
@@ -422,13 +415,10 @@ describe("HybridClassifier", () => {
     it("should detect function definition", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify(
-        "Write a function that calculates factorial",
-        {
-          messageCount: 1,
-          hasSystemPrompt: false,
-        },
-      );
+      const result = await classifier.classify("Write a function that calculates factorial", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
 
       expect(["MEDIUM", "COMPLEX", "REASONING"]).toContain(result.tier);
     });
@@ -436,13 +426,10 @@ describe("HybridClassifier", () => {
     it("should detect class definition", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
-      const result = await classifier.classify(
-        "Create a class for managing user authentication",
-        {
-          messageCount: 1,
-          hasSystemPrompt: false,
-        },
-      );
+      const result = await classifier.classify("Create a class for managing user authentication", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
 
       expect(["MEDIUM", "COMPLEX", "REASONING"]).toContain(result.tier);
     });
@@ -492,7 +479,7 @@ describe("HybridClassifier", () => {
       expect(result.reason).not.toBe("has-tools");
     });
 
-    it("upgrades tier in Layer 1 when the turn actually requires a tool", async () => {
+    it("raises the tier to at least MEDIUM when the turn actually requires a tool", async () => {
       mockFetch.mockResolvedValue({ ok: false } as Response);
 
       const classifier = new HybridClassifier(mockOllama, config);
@@ -502,22 +489,47 @@ describe("HybridClassifier", () => {
         hasTools: true,
       };
 
-      const idle = await classifier.classify("process this data", {
+      // 平凡查询（疑问句、不碰项目物件）在启发式层落 SIMPLE；同一句加上
+      // 动手意图后抬到 MEDIUM 下限。用 requiresTools 而非 hasTools：后者对
+      // Claude Code 恒真。
+      const idle = await classifier.classify("what does this setting do?", {
         ...context,
         requiresTools: false,
       });
-      const acting = await classifier.classify("process this data", {
+      const acting = await classifier.classify("what does this setting do?", {
         ...context,
         requiresTools: true,
       });
 
       // Asserting the layer matters: the previous version of this test passed
       // while Layer 0 short-circuited, so Layer 1 was never exercised.
-      // 两条结果都低置信、经 Layer 3 兜底各再升一档：Layer 1 的 SIMPLE/MEDIUM
-      // 最终表现为 MEDIUM/COMPLEX，requiresTools 的层间差仍保持一档。
       expect(acting.layer).not.toBe("rule");
+      expect(idle.tier).toBe("SIMPLE");
+      expect(acting.tier).toBe("MEDIUM");
+    });
+
+    it("does not stack the requiresTools floor onto an already higher tier (D-002)", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+      const context = {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      };
+
+      // 非平凡文本在启发式层已是 MEDIUM；动手意图是下限而非增量，故不动。
+      const idle = await classifier.classify("帮我处理一下这个数据", {
+        ...context,
+        requiresTools: false,
+      });
+      const acting = await classifier.classify("帮我处理一下这个数据", {
+        ...context,
+        requiresTools: true,
+      });
+
       expect(idle.tier).toBe("MEDIUM");
-      expect(acting.tier).toBe("COMPLEX");
+      expect(acting.tier).toBe("MEDIUM");
     });
 
     it("does not downgrade REASONING when tools are present", async () => {
@@ -561,6 +573,29 @@ describe("HybridClassifier", () => {
       expect(result.tier).not.toBe("REASONING");
     });
 
+    // D-002 收紧词表后新增的反向用例：这些词的日常义压倒推理义。
+    // `derived`/`logical` 是继承术语与形容词，`mathematical` 单独出现只是
+    // 学科名 —— 需要它们时用词组（mathematical proof / logically follows）。
+    it.each([
+      ["derived", "the derived class overrides it"],
+      ["logical", "is this logical"],
+      ["logically", "explain this logically"],
+      ["mathematical", "a mathematical problem"],
+    ])("no longer treats bare %s as a reasoning keyword", async (_label, prompt) => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
+      const classifier = new HybridClassifier(mockOllama, config);
+
+      const result = await classifier.classify(prompt, {
+        messageCount: 1,
+        hasSystemPrompt: false,
+        hasTools: true,
+      });
+
+      expect(result.reason).not.toBe("reasoning-keyword");
+      expect(result.tier).not.toBe("REASONING");
+    });
+
     it.each([
       ["prove", "prove this identity"],
       ["proves", "this proves the claim"],
@@ -568,14 +603,14 @@ describe("HybridClassifier", () => {
       ["proving", "proving by induction"],
       ["theorem", "state the theorem"],
       ["theorems", "the theorems in the appendix"],
+      ["lemma", "state the lemma"],
       ["proof", "walk me through the proof"],
       ["proofs", "are the proofs correct"],
       ["derive", "derive the closed form"],
-      ["derived", "the derived quantity"],
-      ["mathematical", "a mathematical problem"],
       ["mathematically", "show it mathematically"],
-      ["logical", "is this logical"],
-      ["logically", "explain this logically"],
+      ["mathematical proof", "give a mathematical proof"],
+      ["logically follows", "show it logically follows"],
+      ["by induction", "do it by induction"],
       ["show that", "show that the series converges"],
     ])("still treats %s as a reasoning keyword", async (_label, prompt) => {
       const classifier = new HybridClassifier(mockOllama, config);
@@ -798,7 +833,7 @@ describe("HybridClassifier", () => {
       expect(result.reason).toBe("complex-keyword");
     });
 
-    it("should report uncertain-upgrade when no layer reaches its threshold", async () => {
+    it("should report heuristic-uncertain when no layer reaches its threshold", async () => {
       mockFetch.mockResolvedValue({ ok: false } as Response);
 
       const classifier = new HybridClassifier(mockOllama, config);
@@ -810,17 +845,20 @@ describe("HybridClassifier", () => {
       });
 
       expect(result.layer).toBe("fallback");
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.reason).toBe("heuristic-uncertain");
     });
   });
 
-  describe("Layer 3: uncertain-upgrade fallback", () => {
-    // 拿不准时升档：该弱给强只是静默多花钱，该强给弱是质量可见崩。
+  describe("Layer 3: no unconditional upgrade (D-002)", () => {
+    // 曾在此无条件 upgradeTier。但 Layer 1 的置信度门不可达（上限 0.8 <
+    // 0.92），绝大多数流量落到兜底并集体 +1，叠加 Layer 1 内两处升档后真实
+    // CC 流量恒落最高两档。兜底现在照原样返回启发式档位：升档必须由具体
+    // 信号驱动，不得由「没有信号」驱动。
     beforeEach(() => {
       mockFetch.mockResolvedValue({ ok: false } as Response);
     });
 
-    it("upgrades SIMPLE to MEDIUM on fallback", async () => {
+    it("keeps the heuristic tier instead of upgrading it", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
       const result = await classifier.classify("process this data", {
@@ -832,10 +870,10 @@ describe("HybridClassifier", () => {
       expect(result.layer).toBe("fallback");
       expect(result.tier).toBe("MEDIUM");
       expect(result.confidence).toBe(0.5);
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.reason).toBe("heuristic-uncertain");
     });
 
-    it("upgrades MEDIUM to COMPLEX on fallback", async () => {
+    it("keeps a length-driven MEDIUM at MEDIUM", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
       // 51 个无关键词中性词 → 启发式 MEDIUM (0.65)，低于阈值走兜底。
@@ -852,11 +890,11 @@ describe("HybridClassifier", () => {
       });
 
       expect(result.layer).toBe("fallback");
-      expect(result.tier).toBe("COMPLEX");
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.tier).toBe("MEDIUM");
+      expect(result.reason).toBe("heuristic-uncertain");
     });
 
-    it("upgrades COMPLEX to REASONING on fallback", async () => {
+    it("keeps a length-driven COMPLEX at COMPLEX", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
       // 270 个无关键词中性词 → 启发式 COMPLEX (0.7)，低于阈值走兜底。
@@ -868,15 +906,15 @@ describe("HybridClassifier", () => {
       });
 
       expect(result.layer).toBe("fallback");
-      expect(result.tier).toBe("REASONING");
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.tier).toBe("COMPLEX");
+      expect(result.reason).toBe("heuristic-uncertain");
     });
 
-    it("caps at REASONING instead of upgrading past it", async () => {
+    it("keeps a heuristic REASONING at REASONING", async () => {
       const classifier = new HybridClassifier(mockOllama, config);
 
       // "calculate" 只在启发式词表中（Layer 0 不收），给出 REASONING 0.85，
-      // 低于 0.92 阈值走兜底；已是 REASONING 则封顶不变。
+      // 低于 0.92 阈值走兜底。
       const result = await classifier.classify("calculate the total energy consumption", {
         messageCount: 1,
         hasSystemPrompt: false,
@@ -885,25 +923,36 @@ describe("HybridClassifier", () => {
 
       expect(result.layer).toBe("fallback");
       expect(result.tier).toBe("REASONING");
-      expect(result.reason).toBe("uncertain-upgrade");
+      expect(result.reason).toBe("heuristic-uncertain");
     });
   });
 
   describe("conversation length detection", () => {
-    it("should upgrade tier for long conversation with simple message", async () => {
+    it("does not raise the tier for a long conversation (D-002)", async () => {
+      mockFetch.mockResolvedValue({ ok: false } as Response);
+
       const classifier = new HybridClassifier(mockOllama, config);
 
-      // 「谢谢」现在命中 Layer 0 中文感谢规则；改用无关键词的「好的」，
-      // 让请求真正走到启发式层来验证长对话升档。
-      const result = await classifier.classify("好的", {
+      // 「好的」现在命中 Layer 0 确认语规则 —— 整句即全部内容，不含任务。
+      // 长会话不再把它顶上去。
+      const ack = await classifier.classify("好的", {
         messageCount: 10,
         hasSystemPrompt: false,
         hasTools: false,
         conversationLength: "long",
       });
+      expect(ack.tier).toBe("SIMPLE");
+      expect(ack.reason).toBe("acknowledgement");
 
-      // 长对话在启发式层从 SIMPLE 提升到 MEDIUM；低置信兜底再升一档 → COMPLEX
-      expect(result.tier).toBe("COMPLEX");
+      // 走到启发式层的中性句同样不因会话长度变档。
+      const neutral = await classifier.classify("帮我处理一下这个数据", {
+        messageCount: 10,
+        hasSystemPrompt: false,
+        hasTools: false,
+        conversationLength: "long",
+      });
+      expect(neutral.layer).not.toBe("rule");
+      expect(neutral.tier).toBe("MEDIUM");
     });
 
     it("should maintain high confidence for long conversation", async () => {

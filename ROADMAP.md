@@ -4,6 +4,7 @@
 > 审阅基线文档：`docs/reviews/2026-03-08-project-summary.md`
 > 架构收口方案：`docs/plans/2026-03-08-architecture-consolidation-plan.md`
 > Phase 规划依据：`docs/plans/2026-03-08-phase-priority-plan.md`
+> 2026-08-21 分类器设计评审：`docs/reviews/2026-08-21-classifier-design-review.md`（登记 D-002，修订 Phase 3.3/3.9 与 Phase 4 全部任务）
 
 ## 整体 Roadmap
 
@@ -26,9 +27,9 @@ gantt
     部署基线固化             :p3d, after p3c, 1d
 
     section Phase 4 — Benchmark 与正确性
-    Benchmark 数据集设计     :p4a, after p3c, 2d
-    准确率评测 & 调优        :p4b, after p4a, 4d
-    分类回归基线固化         :p4c, after p4b, 1d
+    档位语义 + 回归集         :p4a, after p3c, 2d
+    D-002 决策结构修复        :p4b, after p4a, 2d
+    标注 + 准确率评测调优     :p4c, after p4b, 3d
 
     section Phase 5 — 增强能力接线
     缓存/去重/会话接线       :p5a, after p4c, 4d
@@ -73,12 +74,36 @@ gantt
 
 ### 垃圾箱
 
-## 🔴 待处理缺陷（阻塞 Phase 3）
+## 🔴 待处理缺陷
 
-| 编号  | 缺陷                                                                                         | 严重级别 |                状态                 | 文档                                                                                                                           |
-| :---- | :------------------------------------------------------------------------------------------- | :------: | :---------------------------------: | :----------------------------------------------------------------------------------------------------------------------------- |
-| D-001 | `hasTools` 恒真使三层分类器退化：CC 流量 100% 钉在 COMPLEX/REASONING，SIMPLE/MEDIUM 永不生效 |  🔴 高   | ✅ 分类侧已修复（能力侧留 Phase 3） | [评审报告](docs/reviews/2026-08-17-classifier-hastools-defect.md) · [修复记录](docs/reviews/2026-08-18-classifier-d001-fix.md) |
-| D-002 | Usage-defense 默认关闭 + fallback-estimation 接线 bug 导致网关模型（MiniMax 等）入账全 0     |  🔴 高   |     ✅ 已修复（见下方 Hotfix）      | [审计报告](docs/reviews/2026-08-26-usage-defense-audit.md)                                                                     |
+> D-001 阻塞 Phase 3（能力侧遗留）。D-002 已在 Phase 4.3 修复，回归集锁定。D-003 为本分支合并前登记的 usage-defense 入账问题，已作为 Hotfix 修复。
+
+| 编号  | 缺陷                                                                                           | 严重级别 |                状态                 | 文档                                                                                                                                                          |
+| :---- | :--------------------------------------------------------------------------------------------- | :------: | :---------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D-001 | `hasTools` 恒真使三层分类器退化：CC 流量 100% 钉在 COMPLEX/REASONING，SIMPLE/MEDIUM 永不生效   |  🔴 高   | ✅ 分类侧已修复（能力侧留 Phase 3） | [评审报告](docs/reviews/2026-08-17-classifier-hastools-defect.md) · [修复记录](docs/reviews/2026-08-18-classifier-d001-fix.md)                                |
+| D-002 | 单向棘轮：档位调整只升不降，三处 +1 叠加使 CC 流量恒落最高两档；Layer 1 置信度门不可达成死代码 |  🔴 高   |    ✅ 已修复（4.3，回归集锁定）     | [设计评审](docs/reviews/2026-08-21-classifier-design-review.md) · [档位语义](docs/plans/tier-taxonomy.md) · [讨论清单](docs/plans/classifier-improvements.md) |
+| D-003 | Usage-defense 默认关闭 + fallback-estimation 接线 bug 导致网关模型（MiniMax 等）入账全 0       |  🔴 高   |     ✅ 已修复（见下方 Hotfix）      | [审计报告](docs/reviews/2026-08-26-usage-defense-audit.md)                                                                                                    |
+
+**D-002 摘要（2026-08-21）**：
+
+- **单向棘轮**：`long` 会话 +1（`hybrid.ts:309`）、`requiresTools` +1（`hybrid.ts:323`）、低置信兜底 +1（`hybrid.ts:215`）三处叠加且无任何下调通路。实测「把这个文件的函数改个名」在 `long + requiresTools` 下落 REASONING；真实日志 161/165 条恒为 `long`，故线上每条至少吃一级升档，SIMPLE 只剩 greeting 与 haiku 后台任务能命中。
+- **Layer 1 死代码**：`heuristicThreshold = 0.92` 在无关键词路径上不可达（上限 0.5+0.1+0.15+0.05 = 0.8），穷举 24 种组合仅 2 种真走 `layer: "heuristic"`。线上实为「Layer 0 关键词 + Layer 3 档位 +1」两层。
+- **附带**：`checkRules` 中 reference 早于 complex 且命中即 return，裸词「继续」把重活降到 MEDIUM；Layer 0 以 `confidence: 1.0` 短路但精度不足（`derived class` → REASONING、`where is the architecture doc?` → COMPLEX）；`split(/\s+/)` 使长度维度只对英文生效。
+- **观测前提**：现有 165 条日志全部产生于 8/20 修复之前（缺 `promptCharsSanitized`），无法用于标注。修复后需先挂真实流量攒新日志（任务 4.0，未做）。
+
+**D-002 处置结果（2026-08-21，任务 4.1→4.3）**：
+
+- 前置产出：[`docs/plans/tier-taxonomy.md`](docs/plans/tier-taxonomy.md)（档位语义，判定的唯一依据）+ `src/classifier/tier-regression.test.ts`（53 条中英文用例，先红后绿）。
+- **去棘轮**：三处升档全部改为信号驱动 —— 会话长度只调置信度不动档位；`requiresTools` 给 MEDIUM 下限而非逐级 +1；Layer 3 兜底照原样返回启发式档位（`reason` 随之由 `uncertain-upgrade` 改为 `heuristic-uncertain`，语义变了就换名）。
+- **基线翻转**：启发式基点由 SIMPLE 改为 MEDIUM，SIMPLE 改为需要正面证据（`isTrivialQuery`：疑问句或文本操作，且不碰项目物件/动手动词/camelCase 标识符）。原设计「先假设最简单再无条件累加」正是棘轮的成因。
+- **规则顺序与精度**：reference 检查移到 complex 之后（filler 词不再遮蔽重活）；新增确认语规则（好的/收到/ok）；裸词 `logical`/`derived`/`mathematical`/`security`/`architecture` 移出词表，改用词组；新增中文反向词表（`证明材料`/`解析器` 等不算推导，`变量名`/`命名` 等不算架构分析）。
+- **CJK 词数**：`estimateWordCount` 按 0.6 权重折算 CJK 字符，长度维度对中文生效（109 字中文长指令从 1 词变为约 65 词）。
+- 效果：模拟长会话 CC 流量 18 条的分布由「除问候外全落 COMPLEX/REASONING」变为 SIMPLE 5 / MEDIUM 7 / COMPLEX 4 / REASONING 2。
+- 遗留：1 条用例以 `it.fails` 标记为语义缺口（`帮我写一个数学证明题的解析器` —— 规模只能从语义读出），待 4.4/4.6 或 Layer 2 处理。
+
+**D-003 摘要（2026-08-26）**：
+
+本次 Hotfix 修复的 usage-defense 入账问题，详见下方「✅ Hotfix — Usage-Defense 对齐」。
 
 **D-001 处置结果（2026-08-18）**：
 
@@ -99,7 +124,7 @@ gantt
 | Phase 1 | 基础清理 & 品牌统一             | ✅ **完成** | `e2b9adc` |    315/315    |
 | Phase 2 | Claude Code 支持 & 统一代理架构 | ✅ **完成** | `1b43dae` |    340/340    |
 | Phase 3 | 架构收口与文档对齐              |  🔲 未开始  |     —     | 基线：340/340 |
-| Phase 4 | Benchmark 与正确性              |  🔲 未开始  |     —     | 继承 Phase 3  |
+| Phase 4 | Benchmark 与正确性              |  🚧 进行中  |     —     |    557/557    |
 | Phase 5 | 增强能力接线                    |  🔲 未开始  |     —     | 继承 Phase 4  |
 | Phase 6 | 可观测性                        |  🔲 未开始  |     —     | 继承 Phase 5  |
 | Phase 7 | 性能与生产强化                  |  🔲 未开始  |     —     | 继承 Phase 6  |
@@ -243,6 +268,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
 - [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
   - 前置（D-001 遗留）：`config.yaml` 四档模型未注册 `models.ts`，`filterByToolCalling`/成本估算接入前必须先定模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
+  - 决策输入（2026-08-21）：`src/router/` 共 2546 行，live 链路只用到 `tool-intent.ts`，其余（15 维 sigmoid 打分器、成本感知选模器、profile 分档）全是死代码。删除或收编须一并处理下方 3.9 的文档表述
 - [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
 - [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录
@@ -251,6 +277,9 @@ claude   # 15维分类器自动路由，无需其他配置
   - 确认 `deploy/new-api/` 为唯一官方验证的远程部署形态（nginx + NexusRouter + new-api passthrough）
   - 在 `README.md` 与 `docs/usage-manual.md` 中增加部署入口与快速链接
   - 归档 `docs/plans/2026-02-13-e2e-docker-deployment.md` 等旧部署文档
+- [ ] **3.9 「15 维」表述与实现对齐**（2026-08-21 新增，依赖 3.3 的归位决策）
+  - `README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
+  - `src/adapter/profile.ts:8`、`src/adapter/types.ts:70` 的注释同样过时
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
@@ -265,37 +294,49 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ---
 
-## 🔲 Phase 4 — Benchmark 与正确性
+## 🚧 Phase 4 — Benchmark 与正确性
 
 > **预计时长**: ~7 天
 > **关联文档**:
 > `docs/plans/2026-03-08-phase-priority-plan.md`
+> `docs/reviews/2026-08-21-classifier-design-review.md`（本 Phase 的评测对象与顺序依此修订）
+> `docs/plans/tier-taxonomy.md`（4.1 产出：档位判定的唯一依据）
+> `docs/plans/classifier-improvements.md`
 
 ### 目标
 
-1. **Benchmark 数据集**：构建 500+ 带标注 prompt，量化 15 维分类器准确率
-2. **准确率评测**：分类准确率 ≥ 85%，F1-Score 报告
-3. **评分器调优**：根据 benchmark 结果优化 rule/heuristic/ai 权重
-4. **分类基线固化**：建立回归集，防止后续收敛过程引入分类退化
+> 2026-08-21 修订：评测对象是 live 链路的 `HybridClassifier`，**不是** `src/router/` 的 15 维打分器（2546 行，仅 `tool-intent.ts` 接线，归属待 3.3 决定）。顺序也已调整：先定档位语义与回归集，再攒标注 —— taxonomy 未定则标注无从谈起，且现有 165 条日志全部产生于 8/20 修复之前，不可用。
+
+1. **档位语义定义**：四档 vs 三档、difficulty 轴与 thinking 轴是否拆开 —— 标注与 benchmark 的前置条件
+2. **回归集**：手写中英文用例覆盖四档 + 已知陷阱，纳入 `npm test` 门禁
+3. **Benchmark 数据集**：标注真实 CC 流量，量化 `HybridClassifier` 准确率
+4. **评分器调优**：根据 benchmark 结果修正决策结构与阈值（D-002 是其中的已知缺陷）
 
 ### 关键任务
 
-- [ ] **4.1** 设计 benchmark 数据集格式（prompt / expected_tier / reasoning）
-- [ ] **4.2** 构建 500+ 标注样本（覆盖 SIMPLE/MEDIUM/COMPLEX/REASONING 各 125+）
-- [ ] **4.3** 自动化 benchmark runner（输出准确率/F1/混淆矩阵）
-- [ ] **4.4** 分类器调优（基于 benchmark 结果调整阈值和关键词）
-- [ ] **4.5** 建立分类回归集与回归门禁
-- [ ] **4.6** 输出 benchmark 报告与调优结论
+- [ ] **4.0** 挂真实流量攒 8/20 修复后的路由日志（零成本，阻塞 4.4/4.5/4.6）
+- [x] **4.1** 定义档位语义与标注格式 → [`docs/plans/tier-taxonomy.md`](docs/plans/tier-taxonomy.md)
+  - 结论：**保留四档**。live config 四档是「能力轴 × 思考轴」的乘积（`opus-4-8`/`opus-5` × thinking 关/开），并成三档会丢掉「要不要 thinking」这个独立决策，而它是本部署最主要的成本项
+  - 代价矩阵已按「四档全是 opus」重算：欠档代价远小于通常假设，故「拿不准升档」不是免费保险，必须有封顶
+  - 含 7 条判定边界裁决规则与标注格式（`expectedTier` + 可选 `note`，`src/eval.ts` 可直接消费）
+- [x] **4.2** 手写回归集 → `src/classifier/tier-regression.test.ts`（53 条中英文用例，四档 + D-002 全部陷阱，接入 `npm test`）
+  - 初次运行 28 红 / 25 绿，作为 4.3 的验收依据；语义缺口用 `it.fails` 标记而非放松期望
+- [x] **4.3** 修 D-002 决策结构（去棘轮、基线翻转、规则顺序、裸词收紧、CJK 词数）—— 详见上方 D-002 处置结果
+- [ ] **4.4** 标注真实流量样本（按 `layer` × `finalTier` 分层 + 全量 fallback 样本，200~300 条出基线）
+- [ ] **4.5** 用 `nexusrouter eval`（`src/eval.ts` 已实现）跑准确率 / 混淆矩阵 / 误判方向报告
+- [ ] **4.6** 基于报告二次调优；补 `logUsage` 调用点以量化成本节省
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
 
-| 指标                 | 目标                       |
-| :------------------- | :------------------------- |
-| 分类准确率           | ≥ 85%（vs 人工标注）       |
-| F1-Score (REASONING) | ≥ 0.80                     |
-| 回归门禁             | 有固定回归集并纳入测试流程 |
-| 发布报告             | `BENCHMARK_PHASE4.md`      |
+| 指标       | 目标                                                     | 状态                            |
+| :--------- | :------------------------------------------------------- | :------------------------------ |
+| 档位语义   | 有书面 taxonomy，标注者据此可复现判定                    | ✅ 4.1                          |
+| 回归门禁   | 手写回归集纳入 `npm test`，D-002 全部陷阱有用例锁定      | ✅ 4.2（53 条）                 |
+| 分类准确率 | ≥ 85%（vs 人工标注，对象为 `HybridClassifier`）          | 🔲 待 4.0 攒日志                |
+| 误判方向   | 欠档（final < expected）占比可控，且有封顶而非无条件升档 | ✅ 封顶已落地（4.3）；占比待测  |
+| 档位分布   | SIMPLE/MEDIUM 在真实 CC 流量中实际可达（非仅 greeting）  | ✅ 模拟流量已可达；真实流量待测 |
+| 发布报告   | `docs/reviews/` 下的 benchmark 报告与调优结论            | 🔲 待 4.5                       |
 
 ---
 
