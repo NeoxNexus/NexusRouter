@@ -29,7 +29,7 @@ type Client = {
   cleanup: () => void;
 };
 
-function formatRecent(entry: ParsedUsageEntry): {
+export function formatRecent(entry: ParsedUsageEntry): {
   time: string;
   tier: string;
   model: string;
@@ -42,9 +42,19 @@ function formatRecent(entry: ParsedUsageEntry): {
   const time = Number.isNaN(date.getTime()) ? entry.timestamp : date.toTimeString().slice(0, 8);
   const usage = entry.usage;
   const tokens = usage
-    ? `${(usage.inputUncached + usage.cacheRead + usage.output).toLocaleString("en-US")}/${usage.output.toLocaleString("en-US")}`
+    ? `${(
+        usage.inputUncached +
+        usage.cacheRead +
+        usage.cacheWrite5m +
+        usage.cacheWrite1h +
+        usage.output
+      ).toLocaleString("en-US")}/${usage.output.toLocaleString("en-US")}`
     : "—";
-  const cache = usage ? `${usage.cacheRead.toLocaleString("en-US")} r` : "—";
+  const cache = usage
+    ? `${usage.cacheRead.toLocaleString("en-US")} r / ${(
+        usage.cacheWrite5m + usage.cacheWrite1h
+      ).toLocaleString("en-US")} w`
+    : "—";
   const cost = entry.cost === null ? "—" : `¥${entry.cost.toFixed(4)}`;
   const latency = `${entry.latencyMs.toLocaleString("en-US")} ms`;
   return {

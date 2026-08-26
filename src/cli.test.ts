@@ -69,8 +69,13 @@ describe("classifyKeyMode", () => {
   it("returns 'passthrough' when any provider enables passthroughApiKey", () => {
     const config = makeConfig({
       providers: {
-        openai: { apiKey: "", passthroughApiKey: true, maxRetries: 3, injectStreamUsage: false },
-        anthropic: { apiKey: "sk-secret", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: false },
+        openai: { apiKey: "", passthroughApiKey: true, maxRetries: 3, injectStreamUsage: true },
+        anthropic: {
+          apiKey: "sk-secret",
+          passthroughApiKey: false,
+          maxRetries: 3,
+          injectStreamUsage: true,
+        },
       },
     });
     expect(classifyKeyMode(config)).toBe("passthrough");
@@ -79,8 +84,13 @@ describe("classifyKeyMode", () => {
   it("returns 'fixed' when a provider has a non-empty server-side key", () => {
     const config = makeConfig({
       providers: {
-        openai: { apiKey: "sk-server", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: false },
-        anthropic: { apiKey: "", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: false },
+        openai: {
+          apiKey: "sk-server",
+          passthroughApiKey: false,
+          maxRetries: 3,
+          injectStreamUsage: true,
+        },
+        anthropic: { apiKey: "", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: true },
       },
     });
     expect(classifyKeyMode(config)).toBe("fixed");
@@ -89,7 +99,7 @@ describe("classifyKeyMode", () => {
   it("returns 'none' when no provider has keys or passthrough", () => {
     const config = makeConfig({
       providers: {
-        openai: { apiKey: "", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: false },
+        openai: { apiKey: "", passthroughApiKey: false, maxRetries: 3, injectStreamUsage: true },
       },
     });
     expect(classifyKeyMode(config)).toBe("none");

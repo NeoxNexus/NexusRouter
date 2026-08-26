@@ -117,7 +117,7 @@ describe("AccountingSwitch — L1 hot reload", () => {
       configPath,
       config: initial,
       onWarn: (m) => warnings.push(m),
-      watchImpl: (path, listener) => {
+      watchImpl: (_path, listener) => {
         watcher = new FakeWatcher();
         watcher.on("change", listener);
         return watcher;

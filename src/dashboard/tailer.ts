@@ -10,7 +10,7 @@
  * reader's point of view) and must never hold the whole file in memory.
  */
 
-import { opendir, stat, open, readFile } from "node:fs/promises";
+import { opendir, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import type { UsageEntry, UsageEntryV2 } from "../logger.js";
 import type { TokenUsage } from "../pricing/price-book.js";

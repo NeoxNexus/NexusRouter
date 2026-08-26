@@ -265,6 +265,38 @@ tiers:
     expect(config.ollama.timeout).toBe(800);
     expect(config.ollama.models.fast).toBe("qwen3:4b");
     expect(config.ollama.models.accurate).toBe("qwen3:8b");
+    // Usage defense defaults are on so the ledger stays accurate even when
+    // gateway-style upstreams omit usage events.
+    expect(config.providers.openai.injectStreamUsage).toBe(true);
+    expect(config.accounting.estimateMissingTokens).toBe(true);
+  });
+
+  it("should allow explicit opt-out of the usage-defense defaults", async () => {
+    const configContent = `
+router:
+  port: 8402
+providers:
+  openai:
+    apiKey: test-key
+    injectStreamUsage: false
+tiers:
+  SIMPLE:
+    primary: openai/gpt-4o-mini
+  MEDIUM:
+    primary: openai/gpt-4o
+  COMPLEX:
+    primary: openai/gpt-4o
+  REASONING:
+    primary: openai/o3-mini
+accounting:
+  estimateMissingTokens: false
+`;
+    await fs.writeFile(testConfigPath, configContent);
+
+    const config = await loadConfig(testConfigPath);
+
+    expect(config.providers.openai.injectStreamUsage).toBe(false);
+    expect(config.accounting.estimateMissingTokens).toBe(false);
   });
 
   it("should backfill schema defaults for partially provided ollama config", async () => {

@@ -4,7 +4,7 @@
  * All network I/O is against loopback; no real LLM keys are required.
  */
 
-import { createServer as createHttpServer, type Server } from "node:http";
+import { createServer as createHttpServer } from "node:http";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

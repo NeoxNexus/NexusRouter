@@ -66,7 +66,7 @@ describe("default-config", () => {
     const template = parse(DEFAULT_CONFIG_YAML.replace(/\$\{[^}]+\}/g, "test-key")) as {
       providers?: Record<string, { apiKey?: string; passthroughApiKey?: boolean }>;
     };
-    for (const [name, provider] of Object.entries(template.providers || {})) {
+    for (const provider of Object.values(template.providers || {})) {
       expect(provider.passthroughApiKey).toBe(true);
       // When passthrough is on, the configured apiKey is ignored; leaving it as
       // an env fallback keeps the template flexible for users who later switch

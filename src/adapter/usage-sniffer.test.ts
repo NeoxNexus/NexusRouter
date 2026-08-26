@@ -14,7 +14,7 @@ function bytes(s: string): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-function makeAnthropicChunk(index: number): Uint8Array {
+function makeAnthropicChunk(_index: number): Uint8Array {
   // Average ~180B/chunk, matching the design's measured stream morphology.
   return bytes(
     `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"${"x".repeat(120)}"}}\n\n`,
@@ -93,9 +93,57 @@ describe("Anthropic non-streaming usage", () => {
     expect(result.usageSource).toBe("upstream");
   });
 
-  it("falls back to estimated when usage is missing", () => {
-    const result = extractAnthropicNonStreamingUsage({ type: "message" });
-    expect(result.usageSource).toBe("estimated");
+  it("extracts split 5m / 1h cache creation when cache_creation is present", () => {
+    const result = extractAnthropicNonStreamingUsage({
+      type: "message",
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 200,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 300,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 200,
+          ephemeral_1h_input_tokens: 100,
+        },
+      },
+    });
+    expect(result.usage).toEqual({
+      inputUncached: 600,
+      output: 200,
+      cacheRead: 100,
+      cacheWrite5m: 200,
+      cacheWrite1h: 100,
+    });
+  });
+
+  it("falls back to aggregate cache_creation_input_tokens as 5m when split is absent", () => {
+    const result = extractAnthropicNonStreamingUsage({
+      type: "message",
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 200,
+        cache_creation_input_tokens: 150,
+      },
+    });
+    expect(result.usage.cacheWrite5m).toBe(150);
+    expect(result.usage.cacheWrite1h).toBe(0);
+  });
+
+  it("normalizes split that sums to less than the aggregate", () => {
+    const result = extractAnthropicNonStreamingUsage({
+      type: "message",
+      usage: {
+        input_tokens: 1000,
+        cache_creation_input_tokens: 100,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 30,
+          ephemeral_1h_input_tokens: 20,
+        },
+      },
+    });
+    // Remaining 50 tokens go to 5m to preserve the aggregate.
+    expect(result.usage.cacheWrite5m).toBe(80);
+    expect(result.usage.cacheWrite1h).toBe(20);
   });
 });
 
@@ -152,6 +200,30 @@ describe("Anthropic streaming usage", () => {
     expect(result.truncated).toBe(false);
   });
 
+  it("extracts split 5m / 1h cache creation from message_delta", () => {
+    const sniffer = createUsageSniffer("anthropic", 4096);
+    sniffer.push(
+      bytes(
+        "event: message_start\n" +
+          'data: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":1000}}}\n\n',
+      ),
+    );
+    sniffer.push(
+      bytes(
+        'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":200,"cache_read_input_tokens":50,"cache_creation_input_tokens":300,"cache_creation":{"ephemeral_5m_input_tokens":200,"ephemeral_1h_input_tokens":100}}}\n\n' +
+          "event: message_stop\ndata: {}\n\n",
+      ),
+    );
+    const result = sniffer.finish();
+    expect(result.usage).toEqual({
+      inputUncached: 750,
+      output: 200,
+      cacheRead: 50,
+      cacheWrite5m: 200,
+      cacheWrite1h: 100,
+    });
+  });
+
   it("keeps working when usage is split across chunk boundaries", () => {
     const sniffer = createUsageSniffer("anthropic", 4096);
     const payload =
@@ -194,6 +266,32 @@ describe("OpenAI streaming usage", () => {
     expect(result.usageSource).toBe("upstream");
   });
 
+  it("accumulates content text across streaming chunks", () => {
+    const sniffer = createUsageSniffer("openai", 4096, true);
+    sniffer.push(
+      bytes(
+        'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"}}]}\n\n',
+      ),
+    );
+    sniffer.push(
+      bytes(
+        'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":" world"}}]}\n\n',
+      ),
+    );
+    sniffer.push(bytes("data: [DONE]\n\n"));
+    expect(sniffer.contentText).toBe("Hello world");
+  });
+
+  it("accumulates Anthropic text_delta content text", () => {
+    const sniffer = createUsageSniffer("anthropic", 4096, true);
+    sniffer.push(
+      bytes(
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你好"}}\n\n',
+      ),
+    );
+    expect(sniffer.contentText).toBe("你好");
+  });
+
   it("reports estimated when no usage chunk is present", () => {
     const sniffer = createUsageSniffer("openai", 4096);
     sniffer.push(bytes("data: {}\n\n".repeat(5)));
@@ -222,7 +320,26 @@ describe("Stream parsers ignore empty usage blocks", () => {
 });
 
 describe("applyFallbackEstimation", () => {
-  it("leaves upstream usage untouched", () => {
+  it("uses responseContentText for streaming output when available", () => {
+    const capture = {
+      usage: emptyUsage(),
+      usageSource: "estimated" as const,
+      truncated: false,
+    };
+    // 100 raw SSE bytes with only ~10 content chars would inflate to 25 tokens
+    // under the old responseBytes/4 path. With content text it stays sane.
+    const result = applyFallbackEstimation(capture, {
+      estimateMissingTokens: true,
+      rawBody: { messages: [{ content: "hi" }] },
+      responseBytes: 100,
+      responseContentText: "hello worl",
+      model: "openai/gpt-4o",
+    });
+    expect(result.usage.output).toBeGreaterThan(0);
+    expect(result.usage.output).toBeLessThan(10);
+  });
+
+  it("falls back to responseBytes / charsPerToken when content chars absent", () => {
     const capture = {
       usage: { inputUncached: 10, output: 5, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
       usageSource: "upstream" as const,

@@ -3,9 +3,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "../server.js";
+import { formatRecent } from "./web.js";
 import type { FastifyInstance } from "fastify";
+import type { ParsedUsageEntry } from "./tailer.js";
 
-async function writeTempConfig(dashboard: boolean, logDir: string): Promise<string> {
+// The log directory reaches the server through NEXUSROUTER_LOG_DIR (set in
+// beforeEach), not through the config file — so this helper takes no logDir.
+async function writeTempConfig(dashboard: boolean): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "nexus-web-"));
   const path = join(dir, "config.yaml");
   const yaml = `router:
@@ -63,6 +67,50 @@ async function readFirstSseEvent(url: string): Promise<Record<string, unknown>> 
   throw new Error("no sse event received");
 }
 
+describe("formatRecent", () => {
+  it("includes cache writes in the total token display", () => {
+    const entry: ParsedUsageEntry = {
+      timestamp: "2026-08-26T00:00:00.000Z",
+      tier: "SIMPLE",
+      model: "anthropic/claude-sonnet-4",
+      usage: {
+        inputUncached: 100,
+        output: 50,
+        cacheRead: 20,
+        cacheWrite5m: 30,
+        cacheWrite1h: 10,
+      },
+      usageSource: "upstream",
+      cost: 1.2345,
+      baselineCost: 2.5,
+      savings: 1.2655,
+      latencyMs: 42,
+      truncated: false,
+    };
+    const formatted = formatRecent(entry);
+    // total = 100 + 20 + 30 + 10 + 50 = 210
+    expect(formatted.tokens).toBe("210/50");
+  });
+
+  it("handles null cost and missing usage", () => {
+    const entry: ParsedUsageEntry = {
+      timestamp: "2026-08-26T00:00:00.000Z",
+      tier: "SIMPLE",
+      model: "unknown",
+      usage: undefined,
+      usageSource: "estimated",
+      cost: null,
+      baselineCost: null,
+      savings: null,
+      latencyMs: 0,
+      truncated: false,
+    };
+    const formatted = formatRecent(entry);
+    expect(formatted.tokens).toBe("—");
+    expect(formatted.cost).toBe("—");
+  });
+});
+
 describe("/dashboard web UI", () => {
   let configPath = "";
   let app: FastifyInstance | null = null;
@@ -85,7 +133,7 @@ describe("/dashboard web UI", () => {
   });
 
   it("returns 404 when dashboard is disabled", async () => {
-    configPath = await writeTempConfig(false, logDir);
+    configPath = await writeTempConfig(false);
     configDir = configPath.replace(/\\config\.yaml$/, "");
     app = await createServer(configPath, undefined, false);
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -96,7 +144,7 @@ describe("/dashboard web UI", () => {
   });
 
   it("serves the HTML page when dashboard is enabled", async () => {
-    configPath = await writeTempConfig(true, logDir);
+    configPath = await writeTempConfig(true);
     configDir = configPath.replace(/\\config\.yaml$/, "");
     app = await createServer(configPath, undefined, false);
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -111,7 +159,7 @@ describe("/dashboard web UI", () => {
   });
 
   it("streams SSE events with aggregates and recent entries", async () => {
-    configPath = await writeTempConfig(true, logDir);
+    configPath = await writeTempConfig(true);
     configDir = configPath.replace(/\\config\.yaml$/, "");
     app = await createServer(configPath, undefined, false);
     await app.listen({ port: 0, host: "127.0.0.1" });

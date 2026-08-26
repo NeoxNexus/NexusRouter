@@ -25,6 +25,7 @@
  */
 
 import { emptyUsage, type TokenUsage } from "../pricing/price-book.js";
+import { estimateTokenCount, extractRequestText } from "./token-estimator.js";
 
 export type UsageSource = "upstream" | "estimated" | "partial";
 
@@ -115,17 +116,38 @@ function hasPositiveUsage(usage: Record<string, unknown>): boolean {
   );
 }
 
+function parseAnthropicCacheCreation(usage: Record<string, unknown>): {
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+} {
+  const total = safeInt(usage.cache_creation_input_tokens);
+  const creation = usage.cache_creation as Record<string, unknown> | undefined;
+  const explicit5m = safeInt(creation?.ephemeral_5m_input_tokens);
+  const explicit1h = safeInt(creation?.ephemeral_1h_input_tokens);
+
+  if (explicit5m === 0 && explicit1h === 0) {
+    // No split provided: treat the aggregate as 5m, matching the legacy behavior.
+    return { cacheWrite5m: total, cacheWrite1h: 0 };
+  }
+
+  // If the split sum differs from the aggregate (e.g. upstream rounded or only
+  // reported one side), preserve the aggregate by assigning the remainder to 5m.
+  const remainder = Math.max(0, total - explicit5m - explicit1h);
+  return { cacheWrite5m: explicit5m + remainder, cacheWrite1h: explicit1h };
+}
+
 function parseAnthropicUsage(data: Record<string, unknown>): TokenUsage {
   const usage = (data.usage as Record<string, unknown>) || {};
   const input = safeInt(usage.input_tokens);
   const cacheRead = safeInt(usage.cache_read_input_tokens);
-  const cacheWrite = safeInt(usage.cache_creation_input_tokens);
+  const { cacheWrite5m, cacheWrite1h } = parseAnthropicCacheCreation(usage);
+  const cacheWriteTotal = cacheWrite5m + cacheWrite1h;
   return {
-    inputUncached: Math.max(0, input - cacheRead - cacheWrite),
+    inputUncached: Math.max(0, input - cacheRead - cacheWriteTotal),
     output: safeInt(usage.output_tokens),
     cacheRead,
-    cacheWrite5m: cacheWrite,
-    cacheWrite1h: 0,
+    cacheWrite5m,
+    cacheWrite1h,
   };
 }
 
@@ -228,7 +250,14 @@ export type FallbackEstimationOptions = {
   responseBody?: string;
   /** Streaming total bytes; used to estimate output tokens when responseBody is absent. */
   responseBytes?: number;
-  /** Characters per token for the crude length estimate (default 4). */
+  /** Streaming accumulated response content text; preferred over responseBytes. */
+  responseContentText?: string;
+  /** Model/provider that served the request; drives character-class weights. */
+  model?: string;
+  /**
+   * Deprecated crude fallback (chars / charsPerToken). Kept only for backward
+   * compatibility; when `model` is provided the character-class estimator is used.
+   */
   charsPerToken?: number;
 };
 
@@ -239,15 +268,20 @@ export function applyFallbackEstimation(
 ): UsageCapture {
   if (!opts.estimateMissingTokens || capture.usageSource === "upstream") return capture;
 
-  const charsPerToken = opts.charsPerToken ?? 4;
-  const requestText = opts.rawBody !== undefined ? JSON.stringify(opts.rawBody) : "";
+  const requestText = opts.rawBody !== undefined ? extractRequestText(opts.rawBody) : "";
   const estimatedInput =
-    requestText.length > 0 ? Math.max(1, Math.ceil(requestText.length / charsPerToken)) : 0;
+    requestText.length > 0 ? Math.max(1, estimateTokenCount(requestText, opts.model)) : 0;
 
   let estimatedOutput = 0;
   if (opts.responseBody !== undefined && opts.responseBody.length > 0) {
-    estimatedOutput = Math.max(1, Math.ceil(opts.responseBody.length / charsPerToken));
+    estimatedOutput = Math.max(1, estimateTokenCount(opts.responseBody, opts.model));
+  } else if (opts.responseContentText !== undefined && opts.responseContentText.length > 0) {
+    // Prefer accumulated delta.content length over raw SSE bytes.
+    estimatedOutput = Math.max(1, estimateTokenCount(opts.responseContentText, opts.model));
   } else if (opts.responseBytes !== undefined && opts.responseBytes > 0) {
+    // Streaming bytes are mostly JSON framing; use the legacy byte divisor as a
+    // conservative fallback when we don't have the actual response text.
+    const charsPerToken = opts.charsPerToken ?? 4;
     estimatedOutput = Math.max(1, Math.ceil(opts.responseBytes / charsPerToken));
   }
 
@@ -272,25 +306,89 @@ export function applyFallbackEstimation(
   return { ...capture, usage, usageSource: "estimated" };
 }
 
+function extractContentFromDataLine(line: string): string {
+  const idx = line.indexOf("data:");
+  if (idx === -1) return "";
+  const payload = line.slice(idx + 5).trim();
+  if (payload === "[DONE]") return "";
+  // Fast reject: only lines that may carry content need JSON parsing.
+  if (!payload.includes('"content"') && !payload.includes('"text"')) return "";
+  try {
+    const data = JSON.parse(payload) as Record<string, unknown>;
+    const choices = data.choices as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(choices)) {
+      return choices
+        .map((c) => {
+          const delta = c.delta as Record<string, unknown> | undefined;
+          const content = delta?.content;
+          return typeof content === "string" ? content : "";
+        })
+        .join("");
+    }
+    const delta = data.delta as Record<string, unknown> | undefined;
+    if (delta) {
+      const text = delta.text;
+      if (typeof text === "string") return text;
+    }
+  } catch {
+    // Malformed line in a partial chunk — will be reassembled next push.
+  }
+  return "";
+}
+
+const CONTENT_BUFFER_CAP = 4096;
+
+/** Append extracted content to a bounded buffer, keeping the most recent text. */
+function appendContent(buffer: string, text: string): string {
+  if (text.length === 0) return buffer;
+  const combined = buffer + text;
+  if (combined.length <= CONTENT_BUFFER_CAP) return combined;
+  return combined.slice(combined.length - CONTENT_BUFFER_CAP);
+}
+
+/** Accumulate delta content text across SSE data lines. */
+function accumulateContent(buffer: string, text: string): { buffer: string; content: string } {
+  const combined = buffer + text;
+  let content = "";
+  let start = 0;
+  let end = combined.indexOf("\n");
+  while (end !== -1) {
+    content += extractContentFromDataLine(combined.slice(start, end));
+    start = end + 1;
+    end = combined.indexOf("\n", start);
+  }
+  return { buffer: combined.slice(start), content };
+}
+
 /** Common interface for streaming capture. */
 export type UsageSniffer = {
   push(chunk: Uint8Array): void;
   finish(truncated?: boolean): UsageCapture;
   readonly totalBytes: number;
+  /** Bounded accumulated delta content text, used for fallback estimation. */
+  readonly contentText: string;
 };
 
 class AnthropicStreamSniffer implements UsageSniffer {
   private readonly tail: TailWindow;
+  private readonly accumulateContent: boolean;
   private inputTokens: number | null = null;
   private prefixBuffer = "";
   private gotStart = false;
+  private contentBuffer = "";
+  private contentLineBuffer = "";
 
-  constructor(tailBytes: number) {
+  constructor(tailBytes: number, accumulateContent = false) {
     this.tail = new TailWindow(tailBytes);
+    this.accumulateContent = accumulateContent;
   }
 
   get totalBytes(): number {
     return this.tail.totalBytes;
+  }
+
+  get contentText(): string {
+    return this.contentBuffer;
   }
 
   push(chunk: Uint8Array): void {
@@ -317,6 +415,12 @@ class AnthropicStreamSniffer implements UsageSniffer {
         // Give up looking for message_start; stream is too long at the front.
         this.gotStart = true;
       }
+    }
+
+    if (this.accumulateContent) {
+      const { buffer, content } = accumulateContent(this.contentLineBuffer, text);
+      this.contentLineBuffer = buffer;
+      this.contentBuffer = appendContent(this.contentBuffer, content);
     }
 
     this.tail.push(chunk);
@@ -349,16 +453,32 @@ class AnthropicStreamSniffer implements UsageSniffer {
 
 class OpenAIStreamSniffer implements UsageSniffer {
   private readonly tail: TailWindow;
+  private readonly accumulateContent: boolean;
+  private contentBuffer = "";
+  private contentLineBuffer = "";
 
-  constructor(tailBytes: number) {
+  constructor(tailBytes: number, accumulateContent = false) {
     this.tail = new TailWindow(tailBytes);
+    this.accumulateContent = accumulateContent;
   }
 
   get totalBytes(): number {
     return this.tail.totalBytes;
   }
 
+  get contentText(): string {
+    return this.contentBuffer;
+  }
+
   push(chunk: Uint8Array): void {
+    if (!this.accumulateContent) {
+      this.tail.push(chunk);
+      return;
+    }
+    const text = new TextDecoder().decode(chunk);
+    const { buffer, content } = accumulateContent(this.contentLineBuffer, text);
+    this.contentLineBuffer = buffer;
+    this.contentBuffer = appendContent(this.contentBuffer, content);
     this.tail.push(chunk);
   }
 
@@ -371,7 +491,8 @@ class OpenAIStreamSniffer implements UsageSniffer {
 export function createUsageSniffer(
   protocol: "anthropic" | "openai",
   tailBytes: number,
+  accumulateContent = false,
 ): UsageSniffer {
-  if (protocol === "anthropic") return new AnthropicStreamSniffer(tailBytes);
-  return new OpenAIStreamSniffer(tailBytes);
+  if (protocol === "anthropic") return new AnthropicStreamSniffer(tailBytes, accumulateContent);
+  return new OpenAIStreamSniffer(tailBytes, accumulateContent);
 }

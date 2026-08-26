@@ -13,11 +13,16 @@
  */
 
 import { startServer, createServer } from "./server.js";
-import { loadConfig, ConfigSchema, type Config } from "./config/loader.js";
+import { loadConfig, ConfigSchema } from "./config/loader.js";
 import { OllamaClient } from "./ollama/client.js";
-import { HybridClassifier, type HybridConfig } from "./classifier/hybrid.js";
-import type { ClassificationResult, HeuristicContext } from "./ollama/client.js";
+import { HybridClassifier } from "./classifier/hybrid.js";
 import { VERSION } from "./version.js";
+
+// Re-export the server entry points. The header docs advertise
+// `import { startServer } from 'nexusrouter'`, but until `noUnusedLocals`
+// flagged these as dead imports neither was actually re-exported — the
+// documented library API did not exist. Additive, so no consumer breaks.
+export { startServer, createServer };
 
 // Re-export router types
 export type { RoutingDecision, RoutingConfig, Tier } from "./router/index.js";
@@ -40,7 +45,11 @@ export type { HybridConfig } from "./classifier/hybrid.js";
 export { OpenAICompatClassifier } from "./classifier/openai-compat.js";
 export type { OpenAICompatClassifierOptions } from "./classifier/openai-compat.js";
 export type { AiClassifier } from "./classifier/ai-classifier.js";
-export type { ClassificationResult, HeuristicContext, OllamaClientOptions } from "./ollama/client.js";
+export type {
+  ClassificationResult,
+  HeuristicContext,
+  OllamaClientOptions,
+} from "./ollama/client.js";
 
 // Re-export Ollama client
 export { OllamaClient };

@@ -9,6 +9,11 @@
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
+    // A computed-then-discarded local is how the fallback-estimation wiring bug
+    // shipped past a green typecheck: applyFallbackEstimation's result was
+    // assigned to a local nothing read. Treat that shape as a build error.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

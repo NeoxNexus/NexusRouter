@@ -78,6 +78,7 @@ gantt
 | 编号  | 缺陷                                                                                         | 严重级别 |                状态                 | 文档                                                                                                                           |
 | :---- | :------------------------------------------------------------------------------------------- | :------: | :---------------------------------: | :----------------------------------------------------------------------------------------------------------------------------- |
 | D-001 | `hasTools` 恒真使三层分类器退化：CC 流量 100% 钉在 COMPLEX/REASONING，SIMPLE/MEDIUM 永不生效 |  🔴 高   | ✅ 分类侧已修复（能力侧留 Phase 3） | [评审报告](docs/reviews/2026-08-17-classifier-hastools-defect.md) · [修复记录](docs/reviews/2026-08-18-classifier-d001-fix.md) |
+| D-002 | Usage-defense 默认关闭 + fallback-estimation 接线 bug 导致网关模型（MiniMax 等）入账全 0     |  🔴 高   |     ✅ 已修复（见下方 Hotfix）      | [审计报告](docs/reviews/2026-08-26-usage-defense-audit.md)                                                                     |
 
 **D-001 处置结果（2026-08-18）**：
 
@@ -103,6 +104,34 @@ gantt
 | Phase 6 | 可观测性                        |  🔲 未开始  |     —     | 继承 Phase 5  |
 | Phase 7 | 性能与生产强化                  |  🔲 未开始  |     —     | 继承 Phase 6  |
 | Phase 8 | 发布与生态接入                  |  🔲 未开始  |     —     | 继承 Phase 7  |
+
+---
+
+## ✅ Hotfix — Usage-Defense 对齐（2026-08-26）
+
+> **触发**：用户要求对照 `new-api-main` 的 token 计费逻辑，确认 NexusRouter 是否一致。
+> **报告**：[`docs/reviews/2026-08-26-usage-defense-audit.md`](docs/reviews/2026-08-26-usage-defense-audit.md)
+
+### 已交付
+
+- [x] 修复 `recordUsage` fallback-estimation 接线 bug（`src/accounting/usage-entry.ts` + 回归测试）
+- [x] `tsconfig.json` 启用 `noUnusedLocals` / `noUnusedParameters`，清理 13 处历史死代码
+- [x] `injectStreamUsage` / `estimateMissingTokens` 默认值改为 `true`
+- [x] 移植 new-api 字符级加权 token 估算器（`src/adapter/token-estimator.ts`）
+- [x] 估算前剥离 base64 多模态内容
+- [x] 拆分 Anthropic 5m/1h cache-write tokens
+- [x] 修复流式 output 估算被 SSE 框架字节放大的问题（累积 `delta.content` / `delta.text`）
+- [x] 大屏 `formatRecent` 总 token 计入 `cacheWrite5m/1h`
+- [x] 三门禁全绿：`typecheck` 0 errors / `build` success / `npm test` 690/690
+
+### 对 Phase 规划的影响
+
+本次 Hotfix 提前落地了部分原属 **Phase 5（增强能力接线）** 与 **Phase 6（可观测性）** 的能力：
+
+- 用量估算/兜底逻辑可视为 Phase 5 的「日志/统计接线」前置子项。
+- 默认开启的 usage-defense 与更精确的 token 估算直接提升 Dashboard / `stats` / `report` 数据基线，属于 Phase 6 的可观测性基础。
+
+后续 Phase 5/6 启动时，应以上述实现为基线继续扩展，避免重复造轮。
 
 ---
 

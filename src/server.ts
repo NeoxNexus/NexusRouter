@@ -22,22 +22,19 @@ import type { ProtocolType } from "./adapter/types.js";
 import { inferToolRequirement } from "./router/tool-intent.js";
 import {
   queueRoutingDecision,
-  logRoutingDecision,
   logOutcome,
   logWriterState,
   type RoutingLogEntry,
   type UsageEntryV2,
 } from "./logger.js";
 import { AccountingSwitch } from "./accounting/switch.js";
-import { costOf, emptyUsage } from "./pricing/price-book.js";
-import { resolveBaseline, type BaselineOptions } from "./accounting/baseline.js";
+import { buildUsageEntry } from "./accounting/usage-entry.js";
 import {
   createUsageSniffer,
   extractAnthropicNonStreamingUsage,
   extractOpenAINonStreamingUsage,
-  applyFallbackEstimation,
 } from "./adapter/usage-sniffer.js";
-import { logFilePath, ensureLogDir, resolveLogDir, migrateLegacyLogDir } from "./paths.js";
+import { logFilePath, resolveLogDir, migrateLegacyLogDir } from "./paths.js";
 import { registerDashboardRoutes } from "./dashboard/web.js";
 declare module "fastify" {
   interface FastifyInstance {
@@ -195,7 +192,6 @@ function extractClassificationText(
 }
 
 type RecordUsageInput = {
-  protocol: "anthropic" | "openai";
   finalModelWithProvider: string;
   tier: string;
   requestedModel: string;
@@ -208,52 +204,31 @@ type RecordUsageInput = {
   responseBody?: string;
   /** Streaming bytes forwarded for output estimation fallback. */
   responseBytes?: number;
+  /** Accumulated streaming delta content text; preferred over responseBytes. */
+  responseContentText?: string;
 };
 
 function recordUsage(input: RecordUsageInput): void {
   if (!input.accounting.persist || !input.accounting.ledgerWriter) return;
 
-  const capture = applyFallbackEstimation(input.capture, {
+  // All field-level decisions live in buildUsageEntry (pure, unit-tested).
+  // This function owns only the clock and the file.
+  const entry: UsageEntryV2 = buildUsageEntry({
+    timestamp: new Date().toISOString(),
+    tier: input.tier,
+    finalModelWithProvider: input.finalModelWithProvider,
+    requestedModel: input.requestedModel,
+    capture: input.capture,
+    latencyMs: input.latencyMs,
     estimateMissingTokens: input.accounting.estimateMissingTokens,
+    baselineMode: input.accounting.baselineMode,
+    referenceModel: input.accounting.referenceModel,
+    priceOverrides: input.accounting.priceOverrides,
     rawBody: input.rawBody,
     responseBody: input.responseBody,
     responseBytes: input.responseBytes,
+    responseContentText: input.responseContentText,
   });
-
-  const costUsd = costOf(
-    input.capture.usage,
-    input.finalModelWithProvider,
-    input.accounting.priceOverrides,
-  );
-  const baseline = resolveBaseline(
-    {
-      usage: input.capture.usage,
-      actualModel: input.finalModelWithProvider,
-      actualCostUsd: costUsd,
-      requestedModel: input.requestedModel,
-    },
-    {
-      mode: input.accounting.baselineMode,
-      referenceModel: input.accounting.referenceModel,
-      prices: input.accounting.priceOverrides,
-    },
-  );
-
-  const entry: UsageEntryV2 = {
-    schema: 2,
-    timestamp: new Date().toISOString(),
-    tier: input.tier,
-    model: input.finalModelWithProvider,
-    usage: input.capture.usage,
-    usageSource: input.capture.usageSource,
-    costUsd,
-    baselineModel: baseline.baselineModel,
-    baselineCostUsd: baseline.baselineCostUsd,
-    baselineMethod: baseline.baselineMethod,
-    savedUsd: baseline.savedUsd,
-    truncated: input.capture.truncated,
-    latencyMs: input.latencyMs,
-  };
 
   try {
     const dir = resolveLogDir();
@@ -635,7 +610,6 @@ async function handleUnified(
         ? extractAnthropicNonStreamingUsage(parsedBody)
         : extractOpenAINonStreamingUsage(parsedBody);
     recordUsage({
-      protocol,
       finalModelWithProvider,
       tier: routingLog?.finalTier ?? "DIRECT",
       requestedModel: unified.model || "",
@@ -655,7 +629,7 @@ async function handleUnified(
     });
 
     const sniffer = accounting.captureStreaming
-      ? createUsageSniffer(protocol, accounting.tailWindowBytes)
+      ? createUsageSniffer(protocol, accounting.tailWindowBytes, accounting.estimateMissingTokens)
       : null;
     const reader = result.body.getReader();
     let truncated = false;
@@ -677,7 +651,6 @@ async function handleUnified(
     if (accounting.enabled && sniffer) {
       const capture = sniffer.finish(truncated);
       recordUsage({
-        protocol,
         finalModelWithProvider,
         tier: routingLog?.finalTier ?? "DIRECT",
         requestedModel: unified.model || "",
@@ -686,6 +659,7 @@ async function handleUnified(
         accounting,
         rawBody: unified.rawBody,
         responseBytes: sniffer.totalBytes,
+        responseContentText: sniffer.contentText,
       });
     }
     return;

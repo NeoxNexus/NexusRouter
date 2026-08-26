@@ -136,7 +136,9 @@ function scoreAgenticTask(
 
 export function classifyByRules(
   prompt: string,
-  systemPrompt: string | undefined,
+  // Deliberately unscored — see the comment below. The parameter stays in place
+  // because callers pass it positionally and a future dimension may want it.
+  _systemPrompt: string | undefined,
   estimatedTokens: number,
   config: ScoringConfig,
 ): ScoringResult {

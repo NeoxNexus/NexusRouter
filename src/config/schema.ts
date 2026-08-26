@@ -16,9 +16,10 @@ export const ProviderConfigSchema = z.object({
    * When true, automatically inject `stream_options: { include_usage: true }`
    * into OpenAI-protocol streaming requests so the upstream returns token usage
    * in the SSE stream. Does not modify non-streaming requests or Anthropic
-   * requests. Safe opt-in: defaults to false for backward compatibility.
+   * requests. Defaults to true because most gateway-style upstreams omit usage
+   * unless asked; providers that reject `stream_options` can still opt out.
    */
-  injectStreamUsage: z.boolean().default(false),
+  injectStreamUsage: z.boolean().default(true),
 });
 
 export const TierConfigSchema = z.object({
@@ -148,8 +149,10 @@ export const AccountingConfigSchema = z.object({
    * usage block), fall back to estimating tokens from request/response text
    * length so the dashboard never shows all-zero usage for gateway models that
    * omit usage events. Existing upstream-reported usage is always preserved.
+   * Defaults to true so the fallback defense is active even for legacy configs
+   * that never set this key.
    */
-  estimateMissingTokens: z.boolean().default(false),
+  estimateMissingTokens: z.boolean().default(true),
   /** Batch-flush line threshold. */
   flushLines: z.number().default(64),
   /** Batch-flush timeout in ms. */
