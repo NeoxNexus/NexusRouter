@@ -88,6 +88,9 @@ describe("LedgerWriter — timer", () => {
     expect(rec.calls).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(200);
+    // drain() awaits a real fs mkdir before appending; advancing fake timers
+    // fires the callback but does not wait for that I/O — await the chain.
+    await w.idle();
 
     expect(rec.calls).toHaveLength(1);
     expect(lineCount(rec.calls[0].data)).toBe(1);

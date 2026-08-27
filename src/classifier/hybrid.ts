@@ -25,6 +25,17 @@ interface RuleResult {
   hit: boolean;
   tier?: Tier;
   reason?: ClassificationReason;
+  /**
+   * The substring that fired the rule. `reason` names the category, which is
+   * not enough to tune a word list: D-001 was the skills-list word "improve"
+   * matching the "prove" stem, and that was only findable by reading source.
+   */
+  matched?: string;
+}
+
+/** First match across a regex plus a keyword list, or undefined when neither fires. */
+function firstMatch(text: string, pattern: RegExp, keywords: readonly string[]): string | undefined {
+  return pattern.exec(text)?.[0] ?? keywords.find((k) => text.includes(k));
 }
 
 /** 命中原因。用于日志分析各层与各规则的实际触发分布。 */
@@ -308,6 +319,14 @@ export class HybridClassifier {
     OllamaResult & {
       layer: "rule" | "heuristic" | "ai" | "fallback";
       reason: ClassificationReason;
+      /** Substring that fired a Layer 0 rule. Absent on other layers. */
+      matched?: string;
+      /**
+       * Raw Layer 1 score, kept even when Layer 3 reports 0.5 instead. It is
+       * the only evidence for whether `heuristicThreshold` is reachable —
+       * real traffic hit `layer: "heuristic"` 0 times in 658 requests.
+       */
+      heuristicScore?: number;
     }
   > {
     // Layer 0: Rules (very fast, < 1ms)
@@ -319,6 +338,7 @@ export class HybridClassifier {
         latency: 0.05,
         layer: "rule",
         reason: ruleResult.reason!,
+        ...(ruleResult.matched ? { matched: ruleResult.matched } : {}),
       };
     }
 
@@ -329,6 +349,7 @@ export class HybridClassifier {
         ...heuristicResult,
         layer: "heuristic",
         reason: "heuristic-score",
+        heuristicScore: heuristicResult.confidence,
       };
     }
 
@@ -372,6 +393,7 @@ export class HybridClassifier {
       confidence: 0.5,
       layer: "fallback",
       reason: "heuristic-uncertain",
+      heuristicScore: heuristicResult.confidence,
     };
   }
 
@@ -395,30 +417,32 @@ export class HybridClassifier {
 
     // 推理关键词检测（优先级最高，中英文双通路任一命中即算）。
     // 反向词命中时让位于后续层：见 REASONING_DEMOTE_ZH。
-    if (
-      (REASONING_PATTERN.test(normalized) ||
-        REASONING_KEYWORDS_ZH.some((k) => normalized.includes(k))) &&
-      !REASONING_DEMOTE_ZH.some((k) => normalized.includes(k))
-    ) {
-      return { hit: true, tier: "REASONING", reason: "reasoning-keyword" };
+    const reasoningMatch = firstMatch(normalized, REASONING_PATTERN, REASONING_KEYWORDS_ZH);
+    if (reasoningMatch && !REASONING_DEMOTE_ZH.some((k) => normalized.includes(k))) {
+      return { hit: true, tier: "REASONING", reason: "reasoning-keyword", matched: reasoningMatch };
     }
 
     // 复杂分析关键词（中英文双通路任一命中即算）。反向词命中时让位于后续层：
     // 「深入分析一下这个变量名合适吗」的动作是命名判断，不是架构分析。
-    if (
-      (COMPLEX_PATTERN.test(normalized) ||
-        COMPLEX_KEYWORDS_ZH.some((k) => normalized.includes(k))) &&
-      !COMPLEX_DEMOTE_ZH.some((k) => normalized.includes(k))
-    ) {
-      return { hit: true, tier: "COMPLEX", reason: "complex-keyword" };
+    const complexMatch = firstMatch(normalized, COMPLEX_PATTERN, COMPLEX_KEYWORDS_ZH);
+    if (complexMatch && !COMPLEX_DEMOTE_ZH.some((k) => normalized.includes(k))) {
+      return { hit: true, tier: "COMPLEX", reason: "complex-keyword", matched: complexMatch };
     }
 
     // 引用上文检测。必须排在 complex 之后：filler 词（继续/那个/刚才）只说明
     // 这是续轮，不说明难度，早于 complex 检查会让「继续深入分析这个模块的
     // 架构设计」被降到 MEDIUM（D-002）。命中时给 MEDIUM 下限而非定档 ——
     // 续轮至少要读上文状态，但不足以推定更高。
-    if (REFERENCE_PATTERNS.some((p) => p.test(normalized))) {
-      return { hit: true, tier: "MEDIUM", reason: "reference-pattern" };
+    for (const pattern of REFERENCE_PATTERNS) {
+      const referenceMatch = pattern.exec(normalized);
+      if (referenceMatch) {
+        return {
+          hit: true,
+          tier: "MEDIUM",
+          reason: "reference-pattern",
+          matched: referenceMatch[0],
+        };
+      }
     }
 
     return { hit: false };

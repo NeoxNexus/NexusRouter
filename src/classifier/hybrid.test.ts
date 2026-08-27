@@ -1031,4 +1031,42 @@ describe("HybridClassifier", () => {
       expect(result.tier).not.toBe("SIMPLE");
     });
   });
+
+  // Tuning material: `reason` names the rule category but not the token that
+  // fired it. D-001 (the skills list containing "improve", matching "prove")
+  // was only found by reading source, not logs.
+  describe("tuning observability", () => {
+    it("reports which keyword fired a rule hit", async () => {
+      const classifier = new HybridClassifier(mockOllama, { ...config, aiEnabled: false });
+
+      const result = await classifier.classify("请帮我证明这个算法的正确性", {
+        messageCount: 1,
+        hasSystemPrompt: false,
+      });
+
+      expect(result.layer).toBe("rule");
+      expect(result.reason).toBe("reasoning-keyword");
+      expect(result.matched).toBe("证明");
+    });
+
+    it("keeps the real heuristic score on the fallback path", async () => {
+      const classifier = new HybridClassifier(mockOllama, { ...config, aiEnabled: false });
+
+      const result = await classifier.classify("给这个函数补几个单元测试", {
+        messageCount: 12,
+        hasSystemPrompt: true,
+        hasTools: true,
+        requiresTools: true,
+        conversationLength: "long",
+      });
+
+      // Layer 3 reports 0.5 so downstream cannot mistake a fallback for a
+      // confident call, but the score that missed heuristicThreshold is the
+      // only input for deciding whether that threshold is reachable (4.6).
+      expect(result.layer).toBe("fallback");
+      expect(result.confidence).toBe(0.5);
+      expect(result.heuristicScore).toBeGreaterThan(0.5);
+      expect(result.heuristicScore).toBeLessThan(config.heuristicThreshold);
+    });
+  });
 });

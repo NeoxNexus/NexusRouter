@@ -66,6 +66,13 @@ export type UsageEntryV2 = {
 const PROMPT_PREVIEW_MAX = 200;
 
 /**
+ * Wider than PROMPT_PREVIEW_MAX: this is the text a human labels against the
+ * tier taxonomy, and 200 chars truncates mid-instruction on the long Chinese
+ * prompts that dominate real traffic.
+ */
+const CLASSIFICATION_PREVIEW_MAX = 600;
+
+/**
  * Process-wide batching writer. Its timer is unref'd, so it never holds the
  * process open; `flushLogs()` / the exit hooks drain whatever is left.
  */
@@ -144,6 +151,14 @@ export type RoutingLogEntry = {
   fallbackAttempts?: number;
   layer: "rule" | "heuristic" | "ai" | "fallback";
   reason: string;
+  /** Substring that fired a Layer 0 rule — the field a word list is tuned against. */
+  matched?: string;
+  /**
+   * Raw Layer 1 score. Present even when `confidence` reports the Layer 3
+   * fallback value, so `heuristicThreshold` can be tuned against the real
+   * distribution instead of guessed at.
+   */
+  heuristicScore?: number;
   confidence: number;
   hasTools: boolean;
   toolCount: number;
@@ -155,7 +170,30 @@ export type RoutingLogEntry = {
   promptChars: number;
   /** Length of the text after profile-level boilerplate stripping (pre-classifier). */
   promptCharsSanitized: number;
+  /**
+   * True when the classified text came from an earlier turn because the latest
+   * user turn carried no text (tool_result blocks). Absent = the latest turn
+   * was classified. Stratify eval samples on this: carried-over rows say
+   * nothing about how the router handles the turn actually in flight.
+   */
+  classificationStale?: boolean;
+  /** How many turns back the classified text came from. Absent when fresh. */
+  classificationAgeTurns?: number;
   promptPreview: string;
+  /**
+   * The classifier's own input, truncated. `promptPreview` is every user
+   * message concatenated (16k+ chars in real traffic) and its 200-char cut
+   * routinely shows none of the scored text, which makes annotation
+   * impossible. This field is what a labeler reads. Optional because logs
+   * written before 2026-08-27 have no equivalent.
+   */
+  classificationPreview?: string;
+  /**
+   * Body size estimate (~4 chars/token) behind the `contextForcedComplex`
+   * decision. The boolean alone hides how close a request sat to
+   * `maxTokensForceComplex`, so the threshold cannot be tuned from logs.
+   */
+  estimatedTokens?: number;
   stream: boolean;
   classifyLatencyMs: number;
   upstreamStatus?: number;
@@ -201,6 +239,11 @@ function serializeRouting(entry: RoutingLogEntry): { date: string; line: string 
   const truncated: RoutingLogEntry = {
     ...entry,
     promptPreview: entry.promptPreview.slice(0, PROMPT_PREVIEW_MAX),
+    ...(entry.classificationPreview !== undefined
+      ? {
+          classificationPreview: entry.classificationPreview.slice(0, CLASSIFICATION_PREVIEW_MAX),
+        }
+      : {}),
   };
   return {
     date: entry.timestamp.slice(0, 10), // YYYY-MM-DD

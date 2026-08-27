@@ -750,6 +750,187 @@ ollama:
       await server.close();
     }
   });
+
+  // D-005: real Claude Code traffic advances an agentic loop by appending
+  // assistant + tool_result turns. tool_result blocks carry no text, so
+  // extractClassificationText falls back to the original instruction and the
+  // textKey never changes — 489/658 rows in the 8/25-8/27 capture were
+  // flagged same-text this way. messageCount separates "next loop turn"
+  // (grows) from "verbatim resend" (identical).
+  it("writes no outcome row when an agentic loop advances with the same instruction", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      const instruction = { role: "user", content: "重构 src/foo.ts 的错误处理" };
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: { model: "auto", max_tokens: 100, messages: [instruction] },
+      });
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            instruction,
+            {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } }],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "t1", content: "export function foo()" }],
+            },
+          ],
+        },
+      });
+
+      expect(await readOutcomeEntries()).toHaveLength(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // D-004: the routing log must say when the classified text came from an
+  // earlier turn, otherwise 658 requests collapse into 116 indistinguishable
+  // classification inputs and the eval harness cannot stratify them.
+  it("marks the routing row when the classified text is carried over from an earlier turn", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            { role: "user", content: "重构 src/foo.ts 的错误处理" },
+            {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } }],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "t1", content: "export function foo()" }],
+            },
+          ],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.classificationStale).toBe(true);
+      expect(entry.classificationAgeTurns).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not mark the routing row stale when the last turn carries real text", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [{ role: "user", content: "重构 src/foo.ts 的错误处理" }],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.classificationStale).toBeUndefined();
+      expect(entry.classificationAgeTurns).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  // D-005 calibration: 43 of 55 rule hits in the 8/25-8/27 capture fired on
+  // conversations deeper than 10 turns and still reported confidence 1.0 —
+  // one at messageCount 99. A keyword match against text from 98 turns ago
+  // says nothing certain about the turn in flight. Tier selection is
+  // untouched (resolveWeightedTier never reads confidence).
+  it("caps logged confidence when the rule fired on carried-over text", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            { role: "user", content: "你好" },
+            {
+              role: "assistant",
+              content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "a.ts" } }],
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "t1", content: "export const a = 1" }],
+            },
+          ],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.layer).toBe("rule");
+      expect(entry.classificationStale).toBe(true);
+      expect(entry.confidence).toBe(0.5);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // Annotation blocker: promptPreview is the raw concatenation of every user
+  // message (16854 chars in the capture) truncated to 200, so it routinely
+  // shows none of the text the classifier actually scored. 4.4 cannot label
+  // samples it cannot read.
+  it("logs the classifier's own input separately from the raw prompt", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            {
+              role: "user",
+              content:
+                "<system-reminder>The following skills are available: improve</system-reminder>把这个函数改个名",
+            },
+          ],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.classificationPreview).toBe("把这个函数改个名");
+      expect(entry.promptPreview).toContain("system-reminder");
+      expect(entry.estimatedTokens).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 describe("Model prefix stripping and API key passthrough", () => {

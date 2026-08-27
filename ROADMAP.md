@@ -5,6 +5,7 @@
 > 架构收口方案：`docs/plans/2026-03-08-architecture-consolidation-plan.md`
 > Phase 规划依据：`docs/plans/2026-03-08-phase-priority-plan.md`
 > 2026-08-21 分类器设计评审：`docs/reviews/2026-08-21-classifier-design-review.md`（登记 D-002，修订 Phase 3.3/3.9 与 Phase 4 全部任务）
+> 2026-08-27 状态对齐（对 `main` @ `6400566`）：测试基线 **754/754**（修复 D-004 后全绿）；默认 `config.yaml` 四档已对齐价格注册表（`d63dba5`），D-001 / 3.3 / 4.1 / 5.6 中「四档 opus 未注册」的旧表述见各节更新；OpenAI 流式已支持自动注入 `stream_options.include_usage`（`01eeabf`，推翻 5.6.3 旧红线）；金额显示层统一 ¥（`65d4887`）。
 
 ## 整体 Roadmap
 
@@ -68,21 +69,25 @@ gantt
 
 ### 临时想法
 
-- [ ] 现在的文件到处散落，还有很多没用的文件，整理一下，让目录和文件变得清爽，但不要影响任何功能
-- [ ] 对 README / docs / plugin metadata 做一次彻底收口，避免继续出现旧品牌和旧支付叙事
-- [ ] 评估哪些模块应视为 experimental，哪些应该立即接入主链
+> 2026-08-27 评估结论：
+> 1. 「文件散落整理」—— 合理且仍有效：仓库根目录有两个**已跟踪**的构建产物（`nexusrouter-0.12.5.tgz` / `-offline.tar.gz`），`docs/ppt/`（结项评审 PPT）未跟踪待处置。已拆分为 **3.10**，移入 Phase 3。
+> 2. 「README / docs / plugin metadata 收口」—— 与 3.4 / 3.5 / 3.9 完全重复；3.4 / 3.5 已完成，剩余即 3.9（「15 维」表述与实现对齐）。**已并入 3.9，不再单列**。
+> 3. 「experimental 模块评估」—— 与 3.3（`router/` 归位决策，含 2546 行死代码处置）及 Phase 5 各接线任务重复。**已并入 3.3 / Phase 5，不再单列**。
 
 ### 垃圾箱
 
 ## 🔴 待处理缺陷
 
-> D-001 阻塞 Phase 3（能力侧遗留）。D-002 已在 Phase 4.3 修复，回归集锁定。D-003 为本分支合并前登记的 usage-defense 入账问题，已作为 Hotfix 修复。
+> D-001 阻塞 Phase 3（能力侧遗留）。D-002 已在 Phase 4.3 修复，回归集锁定。D-003 为本分支合并前登记的 usage-defense 入账问题，已作为 Hotfix 修复。D-004 为 2026-08-27 状态对齐时发现的测试断言竞态，已修。D-005 / D-006 由 4.0 真实流量分析发现：D-006（重试信号误报）已修，D-005（分类文本陈旧）本轮只补可观测性，**路由语义待设计讨论，是 4.4/4.5 出正式基线的前置**。
 
 | 编号  | 缺陷                                                                                           | 严重级别 |                状态                 | 文档                                                                                                                                                          |
 | :---- | :--------------------------------------------------------------------------------------------- | :------: | :---------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | D-001 | `hasTools` 恒真使三层分类器退化：CC 流量 100% 钉在 COMPLEX/REASONING，SIMPLE/MEDIUM 永不生效   |  🔴 高   | ✅ 分类侧已修复（能力侧留 Phase 3） | [评审报告](docs/reviews/2026-08-17-classifier-hastools-defect.md) · [修复记录](docs/reviews/2026-08-18-classifier-d001-fix.md)                                |
 | D-002 | 单向棘轮：档位调整只升不降，三处 +1 叠加使 CC 流量恒落最高两档；Layer 1 置信度门不可达成死代码 |  🔴 高   |    ✅ 已修复（4.3，回归集锁定）     | [设计评审](docs/reviews/2026-08-21-classifier-design-review.md) · [档位语义](docs/plans/tier-taxonomy.md) · [讨论清单](docs/plans/classifier-improvements.md) |
-| D-003 | Usage-defense 默认关闭 + fallback-estimation 接线 bug 导致网关模型（MiniMax 等）入账全 0       |  🔴 高   |     ✅ 已修复（见下方 Hotfix）      | [审计报告](docs/reviews/2026-08-26-usage-defense-audit.md)                                                                                                    |
+| D-003 | Usage-defense 默认关闭 + fallback-estimation 接线 bug 导致网关模型（MiniMax 等）入账全 0                    |  🔴 高   |     ✅ 已修复（见下方 Hotfix）      | [审计报告](docs/reviews/2026-08-26-usage-defense-audit.md)                                                                                                    |
+| D-004 | `ledger-writer.test.ts` 定时器用例断言竞态：`advanceTimersByTimeAsync` 不等 drain 内的真实 fs I/O，Node 20/macOS 稳定红 |  🟡 低   |  ✅ 已修复（断言前 `await w.idle()`，754/754 绿）  | 2026-08-27 状态对齐记录（见 Hotfix 后续变更小节） |
+| D-005 | `extractClassificationText` 在 agentic loop 中返回陈旧文本：658 条真实请求只产生 116 个不同分类输入 |  🔴 高   | ✅ 校准与可观测性已修；**档位语义仍留 4.6**（需标注数据） | 见下方「2026-08-27 真实流量分析」 |
+| D-006 | `same-text` 重试信号 74.3% 误报（489/658），`src/eval.ts` 的 retried 列不可用 |  🔴 高   | ✅ 已修复（4.0） | 见下方「2026-08-27 真实流量分析」 |
 
 **D-002 摘要（2026-08-21）**：
 
@@ -113,22 +118,22 @@ gantt
   2. 移植上游 `tool-intent.ts`：`requiresTools` 拆开「带工具表」与「这一轮要动手」
   3. `AgentProfile.sanitizeForClassification`：CC 剥离 `<system-reminder>` 注入块，转发 body 不受影响
   4. `hints.thinking` 开关（`config.yaml` 顶层，默认 `off`）—— thinking 恒真（`CLAUDE_CODE_EFFORT_LEVEL=max` 常开所致）不再参与档位融合
-- 遗留（并入 Phase 3.3）：能力侧 `filterByToolCalling` 接入需 `router/` 上主链。**阻塞项**：`config.yaml` 四档模型（`claude-opus-*`）均未注册进 `models.ts`，直接接入会把四档全过滤掉；须先解决双配置源归属。
+- 遗留（并入 Phase 3.3）：能力侧 `filterByToolCalling` 接入需 `router/` 上主链。~~**阻塞项**：`config.yaml` 四档模型（`claude-opus-*`）均未注册进 `models.ts`~~ —— ✅ **2026-08-25 已解除**（`d63dba5`）：默认模板 tiers 已改为注册表内模型（SIMPLE `openai/gpt-4o-mini` / MEDIUM `openai/gpt-4o` / COMPLEX `anthropic/claude-sonnet-4.6` / REASONING `openai/o3-mini`），`referenceModel` 对齐 `anthropic/claude-opus-4.6`。剩余遗留仅是 `router/` 归位决策本身。
 
 ---
 
 ## Phase 状态总览
 
-| Phase   | 目标                            |    状态     |   提交    |     测试      |
-| :------ | :------------------------------ | :---------: | :-------: | :-----------: |
-| Phase 1 | 基础清理 & 品牌统一             | ✅ **完成** | `e2b9adc` |    315/315    |
-| Phase 2 | Claude Code 支持 & 统一代理架构 | ✅ **完成** | `1b43dae` |    340/340    |
-| Phase 3 | 架构收口与文档对齐              |  🔲 未开始  |     —     | 基线：340/340 |
-| Phase 4 | Benchmark 与正确性              |  🚧 进行中  |     —     |    557/557    |
-| Phase 5 | 增强能力接线                    |  🔲 未开始  |     —     | 继承 Phase 4  |
-| Phase 6 | 可观测性                        |  🔲 未开始  |     —     | 继承 Phase 5  |
-| Phase 7 | 性能与生产强化                  |  🔲 未开始  |     —     | 继承 Phase 6  |
-| Phase 8 | 发布与生态接入                  |  🔲 未开始  |     —     | 继承 Phase 7  |
+| Phase   | 目标                            |       状态       |   提交    |     测试      |
+| :------ | :------------------------------ | :--------------: | :-------: | :-----------: |
+| Phase 1 | 基础清理 & 品牌统一             |    ✅ **完成**   | `e2b9adc` |    315/315    |
+| Phase 2 | Claude Code 支持 & 统一代理架构 |    ✅ **完成**   | `1b43dae` |    340/340    |
+| Phase 3 | 架构收口与文档对齐              | 🚧 部分完成（3.4/3.5/3.8） |     —     | 基线：754/754 |
+| Phase 4 | Benchmark 与正确性              |    🚧 进行中     |     —     |    754/754    |
+| Phase 5 | 增强能力接线                    | 🚧 5.6 核心已完成 |     —     | 继承 Phase 4  |
+| Phase 6 | 可观测性                        | 🚧 6.5/6.6 已完成 |     —     | 继承 Phase 5  |
+| Phase 7 | 性能与生产强化                  | 🚧 7.3 已完成     |     —     | 继承 Phase 6  |
+| Phase 8 | 发布与生态接入                  |     🔲 未开始    |     —     | 继承 Phase 7  |
 
 ---
 
@@ -147,7 +152,15 @@ gantt
 - [x] 拆分 Anthropic 5m/1h cache-write tokens
 - [x] 修复流式 output 估算被 SSE 框架字节放大的问题（累积 `delta.content` / `delta.text`）
 - [x] 大屏 `formatRecent` 总 token 计入 `cacheWrite5m/1h`
-- [x] 三门禁全绿：`typecheck` 0 errors / `build` success / `npm test` 690/690
+- [x] 三门禁全绿：`typecheck` 0 errors / `build` success / `npm test` ~~690/690~~ **754/754**（2026-08-27 基线，含 D-004 修复）
+
+### Hotfix 后续变更（2026-08-25 ~ 08-27，对账补充）
+
+- `d63dba5` 默认模板 tiers/referenceModel 对齐价格注册表，四档不再引用未注册的 `claude-opus-*` 旧配置 —— D-001 遗留与 5.6 硬前置的「未注册」阻塞随之解除
+- `65d4887` 金额显示统一为 ¥（dashboard / stats / report / CLI）；数据层字段仍按配置货币单位计量，设计见 `docs/superpowers/specs/2026-08-25-currency-display-cny-design.md`
+- `01eeabf` OpenAI 流式自动注入 `stream_options.include_usage`（带配置开关）—— 推翻 5.6.3 施工时「流式不注入」的零感知红线，详见 5.6.3 更新注记
+- `60ea73a` Layer 2 分类层支持 OpenAI 兼容协议（new-api / vLLM），配置段 `aiClassifier`；Ollama 层 `enabled` 开关真生效（`85bf9b0`）
+- 2026-08-27 状态对齐：修复 D-004（`src/accounting/ledger-writer.test.ts` 定时器用例竞态），三门禁复跑全绿
 
 ### 对 Phase 规划的影响
 
@@ -172,7 +185,7 @@ gantt
 - [x] 品牌统一：`ClawRouter / BlockRun` → `NexusRouter`，更新 `package.json`、`bin`、logger、stats、updater
 - [x] 全量回归：`typecheck` 0 errors / `build` 成功 / 315 tests 全绿
 - [x] 像素风格 README.md + NexusRouter Logo
-- [x] `ROADMAP.md` / `TASK_TRACKER.md` / `WALKTHROUGH_PHASE1.md` 落地项目根目录
+- [x] `ROADMAP.md` / `TASK_TRACKER.md` / `WALKTHROUGH_PHASE1.md` 落地项目根目录（后两者已随过程文档归档至 `_archive/process/trackers/` 与 `_archive/process/walkthroughs/`；Phase 2 的 `CODE_REVIEW_PHASE2.md` 在 `_archive/process/reviews/`）
 - [x] 代码评审：零高优先级遗留问题
 
 ### SDD/TDD 任务执行顺序（历史记录）
@@ -247,9 +260,9 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ---
 
-## 🔲 Phase 3 — 架构收口与文档对齐
+## 🚧 Phase 3 — 架构收口与文档对齐
 
-> **预计时长**: ~6 天
+> **预计时长**: ~6 天 | **状态**：3.4 / 3.5 / 3.8 已完成，主链收口（3.1–3.3 / 3.6 / 3.7 / 3.9）未开始
 > **关联文档**:
 > `docs/reviews/2026-03-08-project-summary.md`
 > `docs/plans/2026-03-08-architecture-consolidation-plan.md`
@@ -267,7 +280,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.1** 基于审阅报告确认“当前真实主链”与“计划保留主链”
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
 - [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
-  - 前置（D-001 遗留）：`config.yaml` 四档模型未注册 `models.ts`，`filterByToolCalling`/成本估算接入前必须先定模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
+  - 前置（D-001 遗留）：~~`config.yaml` 四档模型未注册 `models.ts`~~ ✅ 已解除（2026-08-25 `d63dba5`，默认 tiers 对齐注册表）；剩余决策：`filterByToolCalling`/成本估算接入时模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
   - 决策输入（2026-08-21）：`src/router/` 共 2546 行，live 链路只用到 `tool-intent.ts`，其余（15 维 sigmoid 打分器、成本感知选模器、profile 分档）全是死代码。删除或收编须一并处理下方 3.9 的文档表述
 - [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
@@ -280,6 +293,10 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **3.9 「15 维」表述与实现对齐**（2026-08-21 新增，依赖 3.3 的归位决策）
   - `README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
   - `src/adapter/profile.ts:8`、`src/adapter/types.ts:70` 的注释同样过时
+- [ ] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）
+  - 移除 git 跟踪的构建产物 `nexusrouter-0.12.5.tgz` / `nexusrouter-0.12.5-offline.tar.gz`（改为 release 附件或 gitignore）
+  - 处置未跟踪的 `docs/ppt/`（结项评审 PPT：提交入库、移入 `_archive/` 或 gitignore，三选一）
+  - 全量回归确认无功能影响
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
@@ -314,18 +331,55 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 关键任务
 
-- [ ] **4.0** 挂真实流量攒 8/20 修复后的路由日志（零成本，阻塞 4.4/4.5/4.6）
+- [x] **4.0** 挂真实流量攒 8/20 修复后的路由日志 —— ✅ **2026-08-27 完成**：8/25~8/27 共 **658** 条 `routing-*.jsonl` + 489 条 `routing-outcome-*.jsonl`，分析结论见下方「2026-08-27 真实流量分析」。本轮顺带修掉 D-006 并为 D-005 补可观测性
 - [x] **4.1** 定义档位语义与标注格式 → [`docs/plans/tier-taxonomy.md`](docs/plans/tier-taxonomy.md)
-  - 结论：**保留四档**。live config 四档是「能力轴 × 思考轴」的乘积（`opus-4-8`/`opus-5` × thinking 关/开），并成三档会丢掉「要不要 thinking」这个独立决策，而它是本部署最主要的成本项
+  - 结论：**保留四档**。~~live config 四档是「能力轴 × 思考轴」的乘积（`opus-4-8`/`opus-5` × thinking 关/开）~~（2026-08-25 起默认模板已改为 `gpt-4o-mini` / `gpt-4o` / `claude-sonnet-4.6` / `o3-mini`，`d63dba5`；四档保留的结论不受影响，「要不要 thinking」仍是独立成本决策）
   - 代价矩阵已按「四档全是 opus」重算：欠档代价远小于通常假设，故「拿不准升档」不是免费保险，必须有封顶
   - 含 7 条判定边界裁决规则与标注格式（`expectedTier` + 可选 `note`，`src/eval.ts` 可直接消费）
 - [x] **4.2** 手写回归集 → `src/classifier/tier-regression.test.ts`（53 条中英文用例，四档 + D-002 全部陷阱，接入 `npm test`）
   - 初次运行 28 红 / 25 绿，作为 4.3 的验收依据；语义缺口用 `it.fails` 标记而非放松期望
 - [x] **4.3** 修 D-002 决策结构（去棘轮、基线翻转、规则顺序、裸词收紧、CJK 词数）—— 详见上方 D-002 处置结果
-- [ ] **4.4** 标注真实流量样本（按 `layer` × `finalTier` 分层 + 全量 fallback 样本，200~300 条出基线）
+- [ ] **4.4** 标注真实流量样本 —— ⚠️ **目标已修订**：原定「200~300 条」在现有数据上不可达。658 条请求去重后只有 **116 个不同分类输入**（D-005 所致），且分布极度倾斜（单个输入最多占 59 条 = 9% 流量）。修订口径：标注全部 116 个唯一输入，报告同时给出**逐输入准确率**与**流量加权准确率**两个数字；`classificationStale` 为真的样本单独分层，不与首轮样本混算
+  - 🔴 **前置**：D-005 的路由语义定案后需重新攒一批日志 —— 修复会改变约 80% 轮次的分类输入，现在测出的准确率修完即失效
 - [ ] **4.5** 用 `nexusrouter eval`（`src/eval.ts` 已实现）跑准确率 / 混淆矩阵 / 误判方向报告
+  - ⚠️ `retried` 分列在 D-006 修复前不可用（74.3% 误报）；修复后按回放预估降至 11.7%，该列才有解释力
 - [ ] **4.6** 基于报告二次调优；补 `logUsage` 调用点以量化成本节省
+  - 新增输入（2026-08-27 实测）：`layer: "heuristic"` 在 658 条真实流量中 **0 次命中**，`heuristicThreshold = 0.92` 确认仍不可达。要么下调阈值让 Layer 1 真正生效，要么承认只有两层并把文档与 `layer` 枚举一起收口 —— 与 3.9 的「15 维」表述对齐问题同源
 - [ ] 全量回归 + 代码评审 + 提交
+
+### 2026-08-27 真实流量分析（任务 4.0 产出）
+
+> 数据集：`~/.nexus-router/logs/` 8/25~8/27，658 条 routing + 489 条 outcome。全部产生于 4.3（D-002 修复）之后，是第一批可用于评测的日志。
+
+**四项实测结论：**
+
+1. **档位分布真实可达**（验收项达成）：MEDIUM 449 / COMPLEX 129 / SIMPLE 75 / REASONING 5。SIMPLE 占 11.4%，不再是「只有 greeting 能命中」——4.3 的基线翻转在真实流量上生效。
+2. **D-002 的棘轮确认已消除**：`classifierTier ≠ finalTier` 共 115 条，**115/115 全部由 `contextForcedComplex` 解释**（有意设计的上下文护栏，只抬到 COMPLEX 且封顶），零条无法解释的升档。
+3. **Layer 1 仍是死代码**：`layer: "heuristic"` **0/658**，91.6%（603 条）走 `fallback` + `heuristic-uncertain`（confidence 恒 0.5），8.4%（55 条）走 `rule`（confidence 恒 1.0）。三层级联在真实流量上实际只有两层 —— 2026-08-21 评审对 `heuristicThreshold = 0.92` 不可达的判断，在 4.3 之后依然成立，归入 4.6。
+4. **分类输入严重退化（D-005）**：658 条请求去重后只有 116 个不同分类输入。铁证是 8/27 03:13–03:16 的连续 18 条请求：`messageCount` 从 1 递增到 33，而 `promptCharsSanitized` 恒为 228、`promptPreview` 完全相同。
+
+**D-005 机理**：`extractClassificationText`（`src/server.ts:190`）反向扫描「最后一条有文本的 user message」。Anthropic adapter 的 `extractText` 只保留 `type === "text"` 块，故 agentic loop 中携带 `tool_result` 的 user turn 一律 sanitize 成空串，扫描继续回退，最终永远落到任务最初那条指令上。后果三连：(a) 分类器对当前轮次完全失明；(b) 派生出 D-006；(c) 与结论 3 互为因果 —— 分类器反复评判同一段陈旧文本，置信度自然永远卡在同一档。
+
+**本轮处置（语义不动，先止血 + 补可观测性）**：
+
+- **D-006 已修**：`normalizeRetryTextKey` 纳入 `messageCount`。loop 推进时 `messageCount` 递增故不再自匹配，verbatim 重发时 `messageCount` 不变故仍能识别。用真实日志回放验证：**489 → 77 条（74.3% → 11.7%），消除 412 条误报**；回放模型先复现了修复前的 489 这一实测值，故该预估可信。
+- **D-005 补可观测性**：`RoutingLogEntry` 新增 `classificationStale` / `classificationAgeTurns`（仅在陈旧时写入，遵循 `contextForcedComplex` 的条件展开惯例）。
+- 新增 3 例回归（`src/server.test.ts`）：loop 推进不得产出 outcome 行、陈旧文本必须打标、首轮文本不得误打标。
+
+**D-005 第二轮处置（校准 + 调优材料，仍不动档位选择）**
+
+先说不做什么：**没有改任何档位选择逻辑**。「陈旧轮次该落哪一档」需要标注数据支撑，凭直觉设计正是 D-002 棘轮的成因，故留到 4.6。本轮修的是「日志在说谎」和「日志材料不够调优」两件事。
+
+- **置信度校准**：陈旧文本命中规则时 `confidence` 封顶到 `STALE_CONFIDENCE_CAP = 0.5`。证据：8/25~8/27 的 55 条 rule 命中里 **43 条（78%）发生在 10 轮以上的会话**，最极端一条 `messageCount=99` 仍上报 `confidence: 1.0` —— 拿 98 轮前的文本做关键词匹配，不构成对当前轮次的确定判断。**可证明是档位中性的**：`resolveWeightedTier` 只读 `.tier` 从不读 `.confidence`，且封顶发生在分类器返回之后，故只影响日志与 `x-nexusrouter-confidence` 响应头。
+- **四项调优材料补齐**（回答「日志是否能支撑分类算法调优」，逐项都有实测依据）：
+  1. `classificationPreview` —— **原先无法标注**：`promptPreview` 记的是所有 user message 的原始拼接（实测 16854 字符）截断到 200 字，而分类器实际只看到 62 字；两者是不同的字符串，200 字窗口几乎必然照不到被评分的文本。新字段记分类器真正的输入，上限 600 字（中文长指令 200 字会截在半句）。**这是 4.4 标注的硬前置**
+  2. `matched` —— 记下具体是哪个词/模式触发了 Layer 0。`reason` 只给类别（`reference-pattern`），不足以调词表：D-001 那次 skills 清单里的 `improve` 命中 `prove` 词干，当初只能靠读源码发现，日志里看不出来
+  3. `heuristicScore` —— Layer 3 兜底原先用硬编码 `0.5` **覆盖**掉真实启发式分数，于是 603 条兜底记录的 confidence 全是 0.5，真实分数分布不可知。现在两个字段并存（`confidence` 仍是 0.5，不影响任何下游判断），4.6 才有依据判断 `heuristicThreshold = 0.92` 是该下调还是该承认只有两层
+  4. `estimatedTokens` —— 原先只记 `contextForcedComplex` 布尔值，看不出请求离阈值有多远，`maxTokensForceComplex` 无从调整
+- 新增 4 例回归（`src/classifier/hybrid.test.ts` 2 例 + `src/server.test.ts` 2 例）。三门禁全绿：`typecheck` 0 errors / `build` success / `npm test` **761/761**
+- 端到端实测确认（临时脚本跑真实 `dist/`，三条请求模拟首轮 + 两次 loop 推进）：`matched: "架构设计"`、`classificationPreview` 已剥离 `<system-reminder>`、`classificationAgeTurns` 按 2 → 4 递增、陈旧规则命中的 `confidence` 为 0.5、`estimatedTokens` 52 → 1102 → 2153、**outcome 行 0 条**（D-006 修复在端到端链路上复现）
+
+**对后续任务的影响**：4.4 的「200~300 条」目标不可达，已修订为「标注 116 个唯一输入 + 双口径准确率」。新增的四个字段（`classificationPreview` / `matched` / `heuristicScore` / `estimatedTokens`）落地后，须先在研发专网重新攒一批流量再出正式基线 —— 旧 658 条缺这四项，既标注不了也调不了阈值。D-005 的档位语义（陈旧轮次沿用首轮 tier，还是把 tool_result 摘要纳入分类文本）留到 4.6，用新日志的 `classificationAgeTurns` 分布来定。
 
 ### 验收标准
 
@@ -333,16 +387,16 @@ claude   # 15维分类器自动路由，无需其他配置
 | :--------- | :------------------------------------------------------- | :------------------------------ |
 | 档位语义   | 有书面 taxonomy，标注者据此可复现判定                    | ✅ 4.1                          |
 | 回归门禁   | 手写回归集纳入 `npm test`，D-002 全部陷阱有用例锁定      | ✅ 4.2（53 条）                 |
-| 分类准确率 | ≥ 85%（vs 人工标注，对象为 `HybridClassifier`）          | 🔲 待 4.0 攒日志                |
-| 误判方向   | 欠档（final < expected）占比可控，且有封顶而非无条件升档 | ✅ 封顶已落地（4.3）；占比待测  |
-| 档位分布   | SIMPLE/MEDIUM 在真实 CC 流量中实际可达（非仅 greeting）  | ✅ 模拟流量已可达；真实流量待测 |
+| 分类准确率 | ≥ 85%（vs 人工标注，对象为 `HybridClassifier`）          | 🔲 待 D-005 定案后重攒日志      |
+| 误判方向   | 欠档（final < expected）占比可控，且有封顶而非无条件升档 | ✅ 封顶已落地并实测（115/115 升档均为 `contextForcedComplex`）；占比待测 |
+| 档位分布   | SIMPLE/MEDIUM 在真实 CC 流量中实际可达（非仅 greeting）  | ✅ **真实流量已验证**（MEDIUM 449 / SIMPLE 75，SIMPLE 占 11.4%） |
 | 发布报告   | `docs/reviews/` 下的 benchmark 报告与调优结论            | 🔲 待 4.5                       |
 
 ---
 
-## 🔲 Phase 5 — 增强能力接线
+## 🚧 Phase 5 — 增强能力接线
 
-> **预计时长**: ~9 天
+> **预计时长**: ~9 天 | **状态**：5.6 省钱记账体系核心已全部完成（5.6.1–5.6.7），5.1–5.5 / 5.7 未开始
 > **关联文档**:
 > `docs/reviews/2026-03-08-project-summary.md`
 > `docs/plans/2026-03-08-architecture-consolidation-plan.md`
@@ -362,7 +416,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **5.4** 接入 `SessionStore` / `SessionJournal`
 - [ ] **5.5** 接入 `Compression`
 - [ ] **5.6** 接入 `Logger` / `Stats` / `Report` —— **Savings Ledger 省钱记账体系**（方案：[`docs/plans/2026-08-19-savings-ledger-design.md`](docs/plans/2026-08-19-savings-ledger-design.md)）
-  - 🔴 **硬前置**：Phase 3.3 未完成前不可施工。四档模型（`claude-opus-*`）未注册进 `models.ts`，成本计算 100% 依赖该价格表，此时接线记出来的账全是 `0` / `null`
+  - 🔴 **硬前置**：~~Phase 3.3 未完成前不可施工。四档模型（`claude-opus-*`）未注册进 `models.ts`，成本计算 100% 依赖该价格表，此时接线记出来的账全是 `0` / `null`~~ —— ✅ **已双重解除**：① 2026-08-20 窄口径解除（「产品默认价 + 部署级 `PriceOverrides`，未知恒为 `null`」）；② 2026-08-25 `d63dba5` 默认 tiers 对齐价格注册表，四档均为已注册模型，无 override 也能出数
     - 📌 **2026-08-20 窄口径解除**（Step 1/2/3 已落地）：改用「产品默认价 + 部署级 `PriceOverrides`，未知恒为 `null`」后，纯函数层与接线层不再依赖 3.3；但**没人填 override 时账面会是一片 `null`**（这是诚实的「未测」，不是 `0`），可运行但无可读省钱数字
   - 现状审计：`logUsage()` 零调用点、`stats.ts`/`report.ts` 无 CLI 入口、上游 `usage` 从不解析、美元数字基于 `maxTokens` 虚构、`savings` 字段单位一名两义（共 10 项缺陷，详见方案第 2 节）
   - ✅ **缺陷 11 已修**（2026-08-20，Step D0）：抽出 `src/paths.ts` 作为日志路径唯一真相源（`resolveLogDir()` **每次调用**重新解析 `NEXUSROUTER_LOG_DIR`，因为 CLI / 容器入口可能在模块 import 之后才设值），`logger.ts` 与 `stats.ts` 双侧改为共用；`getLogFiles()` 由模块常量改为参数传入。新增 `src/paths.test.ts`（8 例）与 `src/stats.test.ts`（5 例，含「读侧认环境变量」「日志目录不存在返回 0 而非抛错」「忽略 `routing-*.jsonl` 不交叉污染」）
@@ -380,7 +434,7 @@ claude   # 15维分类器自动路由，无需其他配置
   - [x] **5.6.3** `src/adapter/` usage 捕获：非流式复用既有 `JSON.parse`（+0.0001ms）；流式用 **4KB 预分配环形尾窗**，写法锁定 `Uint8Array` + `TypedArray.set`（实测 43-57 ns/chunk；改用 `Buffer.concat` 累积会慢 **1100×**，评审红线）—— ✅ **2026-08-20 完成（Step 3）**
     - `src/adapter/usage-sniffer.ts` + 18 例测试（含性能回归门禁）。`TailWindow` 用 `size` 字段追踪逻辑填充量，避免按 `pos === buf.length` 判断环绕导致未对齐 chunk 时数据丢失
     - Anthropic：非流式/流式均解析 `input_tokens` / `output_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`；`message_start` 在流首，嗅探器仅检查前几个 chunk 直到拿到 input usage，之后不再解析中间 chunk
-    - OpenAI：非流式解析 `usage.prompt_tokens` / `completion_tokens` / `prompt_tokens_details.cached_tokens`；流式不注入 `stream_options.include_usage`（零感知升级红线），无 usage chunk 时标记 `usageSource: "estimated"`
+    - OpenAI：非流式解析 `usage.prompt_tokens` / `completion_tokens` / `prompt_tokens_details.cached_tokens`；~~流式不注入 `stream_options.include_usage`（零感知升级红线）~~ —— ⚠️ **2026-08-26 红线已重新决策**（`01eeabf`）：现默认自动注入 `stream_options.include_usage` 以获取流式 usage，带配置开关可关；无 usage chunk 时仍标记 `usageSource: "estimated"`
     - 流中断/客户端 abort 时 `truncated: true`，已收 usage 仍落账
   - [x] **5.6.4** 日志 schema v2（`costUsd` / `baselineCostUsd` / `savedUsd` / `usageSource` / `truncated`），`parseLogFile` 保留 v1 兼容分支 —— ✅ **2026-08-20 完成（Step 3）**
     - `src/logger.ts` 新增 `UsageEntryV2`（`schema: 2`）；`costUsd` 允许 `null` 以维持「未知≠免费」纪律（设计稿写死 `number`，但网关模型无价时 `null` 是诚实结果）
@@ -399,7 +453,7 @@ claude   # 15维分类器自动路由，无需其他配置
     - 定时器 `unref()`（测试用 `timerHasRef()` 断言为 false）；磁盘故障时吞错 + 丢批（不重试，避免堆内存无界增长）+ 计数 `writeFailures`；连续触顶 3 次单向降级并 WARN 一次
     - 顺带交付 5.6.7 的 **L3 一角**：`/health` 已返回 `ledger: { pending, droppedLines, writeFailures, degraded, degradedReason }`，`accounting.*` 开关字段待 Step 2 补齐
   - [x] **5.6.7** 🔴 **分层熔断开关（必须先于 5.6.3 接线交付）**——「发现性能问题能及时关闭」的落地（方案决策 6）—— ✅ **2026-08-20 完成（Step 2）**
-    - `src/config/schema.ts` 新增 `AccountingConfigSchema`，整段缺失等价 `enabled: false`，所有字段带向后兼容默认值（首版 `enabled: false` experimental 默认关闭）
+    - `src/config/schema.ts` 新增 `AccountingConfigSchema`，整段缺失等价 `enabled: false`，所有字段带向后兼容默认值（~~首版 `enabled: false` experimental 默认关闭~~ —— 2026-08-25 `7c185ab` 起内嵌默认模板已改为 `enabled: true` + `persist: true` + `estimateMissingTokens: true`，schema 层的默认值仍保持保守）
     - `src/accounting/switch.ts` 运行时开关：`enabled` / `captureNonStreaming` / `captureStreaming` / `persist`；`enabled: false` 时不创建 `LedgerWriter`、不实例化流式嗅探窗、不产生文件
     - L1 热切换：`fs.watch(config.yaml)` + 200 ms debounce，**仅**解析并热重载 `accounting.*` 子树，非法 YAML / schema 失败时保留旧配置继续服务，不影响进行中的流
     - L2 自动降级：复用 `LedgerWriter` 已有的连续触顶单向降级（`persist` 自动 false，不自动恢复，只 WARN 一次）
@@ -425,9 +479,9 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ---
 
-## 🔲 Phase 6 — 可观测性
+## 🚧 Phase 6 — 可观测性
 
-> **预计时长**: ~7 天
+> **预计时长**: ~7 天 | **状态**：6.5 / 6.6 已完成，6.1–6.4 未开始
 > **关联文档**：`docs/plans/2026-08-20-live-dashboard-design.md`（6.5/6.6 Web 实时大屏设计）
 
 ### 目标
@@ -456,9 +510,9 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ---
 
-## 🔲 Phase 7 — 性能与生产强化
+## 🚧 Phase 7 — 性能与生产强化
 
-> **预计时长**: ~7 天
+> **预计时长**: ~7 天 | **状态**：7.3 压测基线已完成，7.1 / 7.2 / 7.4 / 7.5 未开始
 
 ### 目标
 

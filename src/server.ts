@@ -70,6 +70,14 @@ const TIER_RANK: Record<string, number> = { SIMPLE: 0, MEDIUM: 1, COMPLEX: 2, RE
 const RETRY_WINDOW_MS = 60_000;
 const RETRY_INDEX_MAX = 200;
 
+/**
+ * Ceiling on reported confidence when the classified text was carried over
+ * from an earlier turn. Matches the Layer 3 fallback value: epistemically a
+ * keyword hit on stale text is no better than "unsure what this turn does".
+ * `classificationAgeTurns` carries the granularity.
+ */
+const STALE_CONFIDENCE_CAP = 0.5;
+
 type IndexedRequest = {
   /** ISO timestamp of the routing log row — the outcome join key. */
   timestamp: string;
@@ -83,8 +91,17 @@ type IndexedRequest = {
 const retryIndexByText = new Map<string, IndexedRequest>();
 const retryIndexByAgent = new Map<string, IndexedRequest>();
 
-function normalizeRetryTextKey(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+/**
+ * Retry key. `messageCount` is part of the key because Claude Code's agentic
+ * loop appends assistant + tool_result turns while the classified text stays
+ * pinned to the original instruction (see extractClassificationText). Without
+ * it, every loop turn matches its predecessor: 489 of 658 rows in the
+ * 8/25-8/27 capture were false same-text hits. A verbatim resend keeps the
+ * message count identical, so genuine retries still match.
+ */
+function normalizeRetryTextKey(text: string, messageCount: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized ? `${messageCount}\n${normalized}` : "";
 }
 
 function normalizeRequestedModel(model: string): string {
@@ -181,14 +198,14 @@ function trackRetryOutcome(input: {
 function extractClassificationText(
   profile: AgentProfile,
   messages: UnifiedRequest["messages"],
-): string {
+): { text: string; ageTurns: number } {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user") continue;
     const text = sanitizeForClassification(profile, message.content);
-    if (text) return text;
+    if (text) return { text, ageTurns: messages.length - 1 - i };
   }
-  return "";
+  return { text: "", ageTurns: 0 };
 }
 
 type RecordUsageInput = {
@@ -310,7 +327,8 @@ async function handleUnified(
 
   // Latest real user text — shared by the classifier and the retry detector,
   // so it is computed even when this request is not auto-routed.
-  const classificationText = extractClassificationText(profile, unified.messages);
+  const { text: classificationText, ageTurns: classificationAgeTurns } =
+    extractClassificationText(profile, unified.messages);
 
   // Outcome signal: if this request looks like a retry of one logged in the
   // last 60s, append a companion row for the earlier entry (see the retry
@@ -321,7 +339,7 @@ async function handleUnified(
       timestamp: requestTimestamp,
       agent: profile.name,
       requestedModel: normalizeRequestedModel(unified.model),
-      textKey: normalizeRetryTextKey(classificationText),
+      textKey: normalizeRetryTextKey(classificationText, unified.messages.length),
       index: shouldAutoRoute && userText.length > 0,
     });
   }
@@ -374,6 +392,17 @@ async function handleUnified(
         config.hints?.thinking ?? "off",
       );
 
+      // Calibration: a rule that matched text from an earlier turn is not a
+      // certain read on the turn in flight — 43 of 55 rule hits in the
+      // 8/25-8/27 capture fired past turn 10 and still reported 1.0, one at
+      // messageCount 99. Applied after fusion because resolveWeightedTier
+      // reads only `.tier`, so this cannot move the routing decision; it
+      // corrects what the log and the response header claim.
+      const reportedConfidence =
+        classificationAgeTurns > 0
+          ? Math.min(classifierResult.confidence, STALE_CONFIDENCE_CAP)
+          : classifierResult.confidence;
+
       // Guardrail floor: only raises tiers below COMPLEX (see the shared
       // computation above).
       let contextForcedComplex = false;
@@ -397,7 +426,7 @@ async function handleUnified(
       // Add routing metadata headers
       reply.header("x-nexusrouter-tier", tier);
       reply.header("x-nexusrouter-layer", classifierResult.layer);
-      reply.header("x-nexusrouter-confidence", String(classifierResult.confidence));
+      reply.header("x-nexusrouter-confidence", String(reportedConfidence));
       reply.header("x-nexusrouter-agent", profile.name);
 
       routingLog = {
@@ -411,7 +440,14 @@ async function handleUnified(
         finalModel: rawModel,
         layer: classifierResult.layer,
         reason: classifierResult.reason,
-        confidence: classifierResult.confidence,
+        ...("matched" in classifierResult && classifierResult.matched
+          ? { matched: classifierResult.matched }
+          : {}),
+        ...("heuristicScore" in classifierResult &&
+        typeof classifierResult.heuristicScore === "number"
+          ? { heuristicScore: classifierResult.heuristicScore }
+          : {}),
+        confidence: reportedConfidence,
         hasTools: !!unified.hasTools,
         toolCount: Array.isArray(unified.tools) ? unified.tools.length : 0,
         requiresTools,
@@ -420,7 +456,12 @@ async function handleUnified(
         messageCount: unified.messages.length,
         promptChars: userText.length,
         promptCharsSanitized: classificationText.length,
+        ...(classificationAgeTurns > 0
+          ? { classificationStale: true, classificationAgeTurns }
+          : {}),
         promptPreview: userText,
+        classificationPreview: classificationText,
+        estimatedTokens: Math.round(estimatedTokens),
         stream: !!unified.stream,
         classifyLatencyMs: classifierResult.latency,
       };
