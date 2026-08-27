@@ -1,5 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseArgs, printHelp, classifyKeyMode } from "./cli.js";
+import {
+  parseArgs,
+  printHelp,
+  classifyKeyMode,
+  isMainModule,
+  resolveListenPort,
+} from "./cli.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { ConfigSchema, type Config } from "./config/schema.js";
 
 function makeConfig(partial: Partial<Config> = {}): Config {
@@ -108,5 +118,58 @@ describe("classifyKeyMode", () => {
   it("returns 'none' for an empty provider set", () => {
     const config = makeConfig();
     expect(classifyKeyMode(config)).toBe("none");
+  });
+});
+
+// npm installs a CLI as a symlink in node_modules/.bin. Node resolves
+// import.meta.url to the real file but leaves process.argv[1] as the symlink
+// path, so comparing them raw makes the entry guard false and `nexusrouter`
+// exits 0 having done nothing. Verified against a real 0.12.6 tarball install.
+describe("isMainModule", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nr-main-"));
+  const real = path.join(tmp, "cli.js");
+  const link = path.join(tmp, "cli-link.js");
+  fs.writeFileSync(real, "");
+  fs.symlinkSync(real, link);
+  // Node reports import.meta.url fully resolved; on macOS os.tmpdir() sits
+  // under the /var → /private/var symlink, so build the expectation the same
+  // way rather than from the unresolved path.
+  const realUrl = pathToFileURL(fs.realpathSync(real)).href;
+
+  it("matches when invoked through the real path", () => {
+    expect(isMainModule(realUrl, real)).toBe(true);
+  });
+
+  it("matches when invoked through a symlink", () => {
+    expect(isMainModule(realUrl, link)).toBe(true);
+  });
+
+  it("does not match an unrelated entry point", () => {
+    expect(isMainModule(realUrl, path.join(tmp, "other.js"))).toBe(false);
+  });
+
+  it("does not match when there is no entry point", () => {
+    expect(isMainModule(realUrl, undefined)).toBe(false);
+  });
+});
+
+// router.port in config.yaml was dead: main() resolved the port to a concrete
+// 8402 whenever neither --port nor NEXUSROUTER_PORT was set, and
+// startServer's `port || config.router.port` then never reached the config.
+describe("resolvelistenPort", () => {
+  it("prefers an explicit --port", () => {
+    expect(resolveListenPort(9001, "9002")).toBe(9001);
+  });
+
+  it("falls back to NEXUSROUTER_PORT", () => {
+    expect(resolveListenPort(undefined, "9002")).toBe(9002);
+  });
+
+  it("returns undefined so config.router.port can apply", () => {
+    expect(resolveListenPort(undefined, undefined)).toBeUndefined();
+  });
+
+  it("ignores a non-numeric NEXUSROUTER_PORT rather than listening on NaN", () => {
+    expect(resolveListenPort(undefined, "not-a-port")).toBeUndefined();
   });
 });

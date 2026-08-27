@@ -21,6 +21,7 @@ import { getDefaultConfigPath, ensureConfigExists, loadConfig, type Config } fro
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
 import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
 import { evaluateFile, formatEvalReport } from "./eval.js";
 
 type KeyMode = "fixed" | "passthrough" | "none";
@@ -300,8 +301,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // Start the server
-  const port = args.port || parseInt(process.env.NEXUSROUTER_PORT || "8402", 10);
+  // Start the server. Left undefined when neither --port nor NEXUSROUTER_PORT
+  // is set, so config.router.port applies.
+  const port = resolveListenPort(args.port, process.env.NEXUSROUTER_PORT);
 
   // Resolve config path: explicit --config wins; otherwise the home-dir
   // default, which is auto-created from the template on first launch.
@@ -333,7 +335,13 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(`[NexusRouter] Starting server on port ${port}...`);
+  // The port is only known here when the CLI layer supplied one; otherwise
+  // config.router.port decides and startServer logs the address it bound.
+  console.log(
+    port === undefined
+      ? "[NexusRouter] Starting server..."
+      : `[NexusRouter] Starting server on port ${port}...`,
+  );
 
   try {
     await startServer(configPath, port);
@@ -364,7 +372,45 @@ async function main(): Promise<void> {
   await new Promise(() => {});
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+/**
+ * Listen port from the CLI layer only, or undefined when neither source set
+ * one — `startServer` falls back to `config.router.port` in that case.
+ *
+ * Returning a concrete 8402 here instead made `router.port` in config.yaml
+ * dead: it is documented in README and CLAUDE.md but could never take effect,
+ * because startServer's `port || config.router.port` never saw a falsy port.
+ */
+export function resolveListenPort(
+  argPort: number | undefined,
+  envPort: string | undefined,
+): number | undefined {
+  if (argPort !== undefined) return argPort;
+  const parsed = parseInt(envPort ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Whether this module is the process entry point.
+ *
+ * npm installs a CLI as a symlink under `node_modules/.bin`. Node resolves
+ * `import.meta.url` to the real file but leaves `process.argv[1]` as the
+ * symlink it was invoked through, so a raw string compare is false for every
+ * `npm i -g` / `npx` / `.bin` invocation — the CLI then exits 0 having printed
+ * nothing. Resolve both sides to a real path before comparing.
+ */
+export function isMainModule(moduleUrl: string, entryPath: string | undefined): boolean {
+  if (!entryPath) return false;
+  let resolved = entryPath;
+  try {
+    resolved = realpathSync(entryPath);
+  } catch {
+    // Entry point does not exist on disk (bundler stub, deleted file): fall
+    // back to the raw path rather than crashing before main() can report.
+  }
+  return moduleUrl === pathToFileURL(resolved).href;
+}
+
+if (isMainModule(import.meta.url, process.argv[1])) {
   main().catch((err) => {
     console.error(`[NexusRouter] Fatal error: ${err.message}`);
     process.exit(1);
