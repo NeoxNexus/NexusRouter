@@ -70,7 +70,7 @@ gantt
 ### 临时想法
 
 > 2026-08-27 评估结论：
-> 1. 「文件散落整理」—— 合理且仍有效：仓库根目录有两个**已跟踪**的构建产物（`nexusrouter-0.12.5.tgz` / `-offline.tar.gz`），`docs/ppt/`（结项评审 PPT）未跟踪待处置。已拆分为 **3.10**，移入 Phase 3。
+> 1. 「文件散落整理」—— 合理且仍有效：仓库根目录有两个构建产物（`nexusrouter-*.tgz` / `-offline.tar.gz`），**已确认由 `.gitignore` 第 9/10 行忽略且从未被 git 跟踪**（2026-08-27 用 `git ls-files` 与 `git log --all` 双向核实，原表述「已跟踪」有误）；`docs/ppt/`（结项评审 PPT）未跟踪待处置。已拆分为 **3.10**，移入 Phase 3。
 > 2. 「README / docs / plugin metadata 收口」—— 与 3.4 / 3.5 / 3.9 完全重复；3.4 / 3.5 已完成，剩余即 3.9（「15 维」表述与实现对齐）。**已并入 3.9，不再单列**。
 > 3. 「experimental 模块评估」—— 与 3.3（`router/` 归位决策，含 2546 行死代码处置）及 Phase 5 各接线任务重复。**已并入 3.3 / Phase 5，不再单列**。
 
@@ -294,8 +294,9 @@ claude   # 15维分类器自动路由，无需其他配置
   - `README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
   - `src/adapter/profile.ts:8`、`src/adapter/types.ts:70` 的注释同样过时
 - [ ] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）
-  - 移除 git 跟踪的构建产物 `nexusrouter-0.12.5.tgz` / `nexusrouter-0.12.5-offline.tar.gz`（改为 release 附件或 gitignore）
+  - ~~移除 git 跟踪的构建产物~~ ✅ **无需处理**：`nexusrouter-*.tgz` / `-offline.tar.gz` 已被 `.gitignore` 忽略且从未进入版本库（2026-08-27 核实）。仅需注意本地会残留旧版本号的包文件，部署前核对 sha256 而非只看文件名
   - 处置未跟踪的 `docs/ppt/`（结项评审 PPT：提交入库、移入 `_archive/` 或 gitignore，三选一）
+  - `CHANGELOG.md` 已严重脱节（最新条目 v0.11.11 / Mar 2，缺失整条 0.12.x 线，且开头仍写旧品牌「ClawRouter」）—— 归 Phase 8.3，不在本项范围内补写单条以免造出「0.11.11 直接跳到 0.12.6」的误导性历史
   - 全量回归确认无功能影响
 - [ ] 全量回归 + 代码评审 + 提交
 
