@@ -88,6 +88,8 @@ gantt
 | D-004 | `ledger-writer.test.ts` 定时器用例断言竞态：`advanceTimersByTimeAsync` 不等 drain 内的真实 fs I/O，Node 20/macOS 稳定红 |  🟡 低   |  ✅ 已修复（断言前 `await w.idle()`，754/754 绿）  | 2026-08-27 状态对齐记录（见 Hotfix 后续变更小节） |
 | D-005 | `extractClassificationText` 在 agentic loop 中返回陈旧文本：658 条真实请求只产生 116 个不同分类输入 |  🔴 高   | ✅ 校准与可观测性已修；**档位语义仍留 4.6**（需标注数据） | 见下方「2026-08-27 真实流量分析」 |
 | D-006 | `same-text` 重试信号 74.3% 误报（489/658），`src/eval.ts` 的 retried 列不可用 |  🔴 高   | ✅ 已修复（4.0） | 见下方「2026-08-27 真实流量分析」 |
+| D-007 | 入口守卫对符号链接失效：npm 安装后 `nexusrouter` 命令 exit 0 且零输出，`npm i -g` / `npx` / `.bin` 三种调用全中 |  🔴 阻断 | ✅ 已修复（`isMainModule` realpath 比较） | 见下方「2026-08-27 安装级验证」 |
+| D-008 | `config.yaml` 的 `router.port` 是死配置：CLI 恒传具体 8402，`startServer` 的 `port \|\| config.router.port` 永远兜不到 |  🟠 中   | ✅ 已修复（`resolveListenPort` 常规优先级） | 见下方「2026-08-27 安装级验证」 |
 
 **D-002 摘要（2026-08-21）**：
 
@@ -393,6 +395,21 @@ claude   # 15维分类器自动路由，无需其他配置
 | 档位分布   | SIMPLE/MEDIUM 在真实 CC 流量中实际可达（非仅 greeting）  | ✅ **真实流量已验证**（MEDIUM 449 / SIMPLE 75，SIMPLE 占 11.4%） |
 | 发布报告   | `docs/reviews/` 下的 benchmark 报告与调优结论            | 🔲 待 4.5                       |
 
+### 2026-08-27 安装级验证（D-007 / D-008）
+
+> 触发：用户要求验证 0.12.6 包能否正常运行。方法：真实 tgz 装进干净 `node_modules` + mock 上游，全程未触碰用户的 `~/.nexus-router/config.yaml` 与日志目录。
+
+**两个缺陷都只在「按 npm 方式安装后运行」时出现，`node dist/cli.js` 路径下完全看不出来 —— 三道门禁 100% 绿的同时，包是不可用的。**
+
+- **D-007（阻断级）**：`import.meta.url === pathToFileURL(process.argv[1]).href` 恒为 false。npm 把 CLI 装成 `node_modules/.bin` 下的符号链接，Node 把 `import.meta.url` 解析成真实路径、却把 `argv[1]` 保留为链接路径。实测两值分别是 `file:///…/nexusrouter/dist/cli.js` 与 `/…/.bin/nexusrouter`，于是 `main()` 从不执行 —— `--help` / `--version` / 启动服务全部 exit 0 且零输出，`npm i -g` / `npx` / 本地 `.bin` 三种方式全中。改为两侧 realpath 后比较。
+- **D-008（中）**：`args.port || parseInt(env ?? "8402")` 在两者都未设时也产出具体的 8402，而 `startServer` 用 `port || config.router.port` 兜底，故 `config.yaml` 里的端口永远到不了 —— 而 README 与 CLAUDE.md 都把 `router.port` 记作设置端口的方式。改为 `--port` > `NEXUSROUTER_PORT` > `config.router.port`，非数字环境变量按未设处理（原实现会去监听 `NaN`）。
+
+**验证结果**（全部通过）：`--version` 输出 `0.12.6`；按 config 绑到 8599（证明 D-008 已修）；`/health` 返回 ledger + accounting 状态；一条 anthropic 请求 HTTP 200 且落 COMPLEX → `mock-complex`（provider 前缀已剥离）；四个新日志字段齐全 —— `matched: "深入分析"`、`classificationPreview` 已剥离 `<system-reminder>`、陈旧轮次 `confidence: 0.5` 且 `classificationAgeTurns: 2`、fallback 行 `heuristicScore: 0.5`；loop 推进 0 条 outcome 行、原样重发 1 条 `same-text` —— D-006 两个方向均成立。
+
+**暴露的流程缺口**：`npm test` 全程只跑源码、从不碰打包产物，这一类缺陷对三道门禁完全隐形。已并入 **8.4 release checklist**。
+
+**已知取舍**：`matched` 只在 reasoning / complex / reference 三类规则上填充；greeting / thanks / acknowledgement 是整句匹配，`matched` 会与 `classificationPreview` 完全重复，故留空以省每行字节。
+
 ---
 
 ## 🚧 Phase 5 — 增强能力接线
@@ -552,6 +569,7 @@ claude   # 15维分类器自动路由，无需其他配置
 - [ ] **8.2** README 与安装文档最终收尾
 - [ ] **8.3** CHANGELOG.md + npm publish 准备（semver、tag）
 - [ ] **8.4** release checklist 与发布说明
+  - 🔴 **必须包含装包冒烟**（2026-08-27 D-007 教训）：`npm test` 只跑源码、从不碰打包产物，D-007（npm 安装后 CLI 静默退出）在三道门禁 100% 绿的情况下依然存在。发布前须做：真实 tgz 装进干净 `node_modules` → 经 `.bin` 调用 `--version` → 起服务 → 打一条请求 → 确认日志落盘。缺这一步，版本号绿灯不代表包能跑
 - [ ] 全量回归 + 代码评审 + 提交
 
 ---
