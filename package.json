@@ -1,6 +1,6 @@
 {
   "name": "nexusrouter",
-  "version": "0.12.6",
+  "version": "0.12.7",
   "description": "Smart LLM router — intelligent model selection with 15-dimension scoring. 41+ models, zero-cost routing in <1ms.",
   "type": "module",
   "main": "dist/index.js",
