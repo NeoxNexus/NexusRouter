@@ -6,7 +6,7 @@ All notable changes to NexusRouter (formerly ClawRouter).
 
 ## Unreleased — cleanup
 
-- **CI fixed** — the lifecycle/security-scanner integration tests referenced modules that never existed in this repo (`src/proxy.js`, `src/auth.js`) and failed on every run; they are removed and CI now runs the full unit suite (739 tests) on every push
+- **CI fixed** — the lifecycle/security-scanner integration tests referenced modules that never existed in this repo (`src/proxy.js`, `src/auth.js`) and failed on every run; they are removed and CI now runs the full unit suite (742 tests) on every push
 - **Legacy ClawRouter/BlockRun test files deleted** — `test/` contained solana/wallet/x402 leftovers that were never runnable; `test/integration/`, `test/docker/`, `skills/clawrouter/`, the ClawRouter-era `scripts/{install,uninstall,update,reinstall}` helpers and ~10 dead npm scripts removed
 - **Dead code deleted** — `src/compression/` (~1,170 lines, never wired), `src/journal.ts`, `src/report.ts`, `src/updater.ts` (placeholder URL), `src/router/llm-classifier.ts`
 - **Docs aligned with reality** — README/package.json no longer advertise "15-dimension scoring" as the built-in classifier (it is a library API; the server uses HybridClassifier); library-only exports (SessionStore, RequestDeduplicator, ResponseCache, fetchWithRetry, typed errors) are now explicitly documented as not wired into the server pipeline

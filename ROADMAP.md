@@ -6,7 +6,7 @@
 > Phase 规划依据：`docs/plans/2026-03-08-phase-priority-plan.md`
 > 2026-08-21 分类器设计评审：`docs/reviews/2026-08-21-classifier-design-review.md`（登记 D-002，修订 Phase 3.3/3.9 与 Phase 4 全部任务）
 > 2026-08-27 状态对齐（对 `main` @ `6400566`）：测试基线 **754/754**（修复 D-004 后全绿）；默认 `config.yaml` 四档已对齐价格注册表（`d63dba5`），D-001 / 3.3 / 4.1 / 5.6 中「四档 opus 未注册」的旧表述见各节更新；OpenAI 流式已支持自动注入 `stream_options.include_usage`（`01eeabf`，推翻 5.6.3 旧红线）；金额显示层统一 ¥（`65d4887`）。
-> 2026-09-01 校准（对工作区**未提交**改动，版本 0.12.7）：一轮死代码清理删除了 `src/compression/`（~1170 行，从未接线）、`src/journal.ts`、`src/report.ts`、`src/updater.ts`、`src/router/llm-classifier.ts` 及 ClawRouter 时代的 test/ 残留（solana/wallet/x402、integration、docker）与失效 npm scripts；README / package.json / `src/index.ts` 已把 15 维评分器与 `SessionStore` / `RequestDeduplicator` / `ResponseCache` / `fetchWithRetry` 显式标注为**仅库 API、未接入服务管线**；CHANGELOG 已重写至 v0.12.7（含 0.12.x 全线，品牌已修正）；CI 改为跑全量单测。实测基线 `npm test` **742/742**（36 文件，旧文 754/761 均过时）、typecheck / lint 全绿。本文件各节状态据此重校准：3.3 / 3.7 / 3.10 视为已决，5.2–5.5 重定性，详见各节「2026-09-01 校准」注记。
+> 2026-09-01 校准（对 `e8c64fa` 清理提交，版本 0.12.7）：一轮死代码清理删除了 `src/compression/`（~1170 行，从未接线）、`src/journal.ts`、`src/report.ts`、`src/updater.ts`、`src/router/llm-classifier.ts` 及 ClawRouter 时代的 test/ 残留（solana/wallet/x402、integration、docker）与失效 npm scripts；README / package.json / `src/index.ts` 已把 15 维评分器与 `SessionStore` / `RequestDeduplicator` / `ResponseCache` / `fetchWithRetry` 显式标注为**仅库 API、未接入服务管线**；CHANGELOG 已重写至 v0.12.7（含 0.12.x 全线，品牌已修正）；CI 改为跑全量单测。实测基线 `npm test` **742/742**（36 文件，旧文 754/761 均过时）、typecheck / lint 全绿。本文件各节状态据此重校准：3.3 / 3.7 / 3.10 视为已决，5.2–5.5 重定性，详见各节「2026-09-01 校准」注记。
 
 ## 整体 Roadmap
 
@@ -138,7 +138,7 @@ gantt
 | Phase 5 | 增强能力接线                    | 🚧 5.6 完成；5.2–5.5 重定性为库 API（压缩模块已删）  |     —     | 继承 Phase 4  |
 | Phase 6 | 可观测性                        |    🚧 6.5/6.6 完成；6.1/6.2 部分；6.3/6.4 未开始     |     —     | 继承 Phase 5  |
 | Phase 7 | 性能与生产强化                  |                    🚧 7.3 已完成                     |     —     | 继承 Phase 6  |
-| Phase 8 | 发布与生态接入                  |    🚧 8.3 CHANGELOG 已重写（未提交）；其余未开始     |     —     | 继承 Phase 7  |
+| Phase 8 | 发布与生态接入                  |    🚧 8.3 CHANGELOG 已重写（`e8c64fa`）；其余未开始     |     —     | 继承 Phase 7  |
 
 > 测试基线说明（2026-09-01）：当前工作区实测 **742/742（36 文件）**。旧文 754/754（D-004 修复后）与 761/761（D-005 第二轮）均已被死代码清理后的测试集取代——删除了 `journal.test.ts`、`compression/` 全部测试与 test/ 目录 ClawRouter 残留，742 是新的唯一有效基线。
 
@@ -286,28 +286,28 @@ claude   # 15维分类器自动路由，无需其他配置
 
 - [x] **3.1** 基于审阅报告确认“当前真实主链”与“计划保留主链” —— ✅ **2026-09-01 校准**：真实主链已实证为 `src/server.ts` → `HybridClassifier`（规则 → 启发式 → 可选 AI → 兜底），`src/router/` 不在链上（README「库 API 说明」与 `src/index.ts` 注释均已显式标注）
 - [ ] **3.2** 设计统一 `RoutingDecision` 输出结构 —— ⚠️ **2026-09-01 重定性**：`RoutingDecision` 已作为库 API 类型从 `src/router/index.js` 导出；服务主链并无消费方。若 5.1 pipeline 真启动则并入其时设计，否则本项可关闭
-- [x] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线 —— ✅ **2026-09-01 已决（保留为库 API，未提交）**
+- [x] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线 —— ✅ **2026-09-01 已决（保留为库 API，`e8c64fa`）**
   - 前置（D-001 遗留）：~~`config.yaml` 四档模型未注册 `models.ts`~~ ✅ 已解除（2026-08-25 `d63dba5`，默认 tiers 对齐注册表）；剩余决策：`filterByToolCalling`/成本估算接入时模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
   - 决策输入（2026-08-21）：`src/router/` 共 2546 行，live 链路只用到 `tool-intent.ts`，其余（15 维 sigmoid 打分器、成本感知选模器、profile 分档）全是死代码。删除或收编须一并处理下方 3.9 的文档表述
-  - **决策结果（2026-09-01，工作区未提交）**：不删不收编，**保留为显式标注的库 API** —— `route()` 及 15 维评分器继续从 `index.ts` 导出，注释明确「内置服务用 HybridClassifier，不用 route()」；README 新增「库 API 说明」一节；`src/router/llm-classifier.ts`（126 行，无调用方）已删，`src/router/` 现 2393 行。双主线叙事在文档层已消除，代码层维持现状是有意决策而非遗留
+  - **决策结果（2026-09-01，`e8c64fa`）**：不删不收编，**保留为显式标注的库 API** —— `route()` 及 15 维评分器继续从 `index.ts` 导出，注释明确「内置服务用 HybridClassifier，不用 route()」；README 新增「库 API 说明」一节；`src/router/llm-classifier.ts`（126 行，无调用方）已删，`src/router/` 现 2393 行。双主线叙事在文档层已消除，代码层维持现状是有意决策而非遗留
 - [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
-- [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录 —— 🟡 **2026-09-01 部分达成**：CHANGELOG「Unreleased — cleanup」段已记录死代码删除与库 API 边界，但未提交；独立的架构收口说明文档未产出
+- [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录 —— 🟡 **2026-09-01 部分达成**：CHANGELOG「Unreleased — cleanup」段已记录死代码删除与库 API 边界（`e8c64fa`）；独立的架构收口说明文档未产出
 - [x] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径 —— ✅ **已完成**（`ensureConfigExists` + `cli.ts:50-51` 按 OS 输出 `~/.nexus-router/config.yaml` / `%USERPROFILE%\.nexus-router\config.yaml`；CHANGELOG v0.12.0–0.12.5 合并条目有载）
 - [x] **3.8 部署基线收口与文档入口统一**
   - 确认 `deploy/new-api/` 为唯一官方验证的远程部署形态（nginx + NexusRouter + new-api passthrough）
   - 在 `README.md` 与 `docs/usage-manual.md` 中增加部署入口与快速链接
   - 归档 `docs/plans/2026-02-13-e2e-docker-deployment.md` 等旧部署文档
 - [ ] **3.9 「15 维」表述与实现对齐**（2026-08-21 新增，依赖 3.3 的归位决策）—— 🟡 **2026-09-01 过半完成**
-  - ✅ 已修（工作区）：`README.md`（15 维改述为库 API，正文改为 HybridClassifier 三层说明）、`package.json` description、`src/index.ts` 导出注释（新增「库 API 说明」与逐条 library-only 标注）、`ROADMAP.md`（本轮校准）
+  - ✅ 已修（`e8c64fa`）：`README.md`（15 维改述为库 API，正文改为 HybridClassifier 三层说明）、`package.json` description、`src/index.ts` 导出注释（新增「库 API 说明」与逐条 library-only 标注）、`ROADMAP.md`（本轮校准）
   - 🔲 剩余：`CLAUDE.md`（仍写「14 维」）、`docs/architecture.md`（:91/:118）、`docs/features.md`（:15/:17；:67 已正确标注未接线）、`docs/routing-profiles.md`（:43）、`src/adapter/profile.ts:8` 与 `src/adapter/types.ts:70` 注释仍写 15-dim
   - 原始记录：`README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
-- [x] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）—— ✅ **2026-09-01 完成（工作区未提交）**
+- [x] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）—— ✅ **2026-09-01 完成（`e8c64fa`）**
   - ~~移除 git 跟踪的构建产物~~ ✅ **无需处理**：`nexusrouter-*.tgz` / `-offline.tar.gz` 已被 `.gitignore` 忽略且从未进入版本库（2026-08-27 核实）。仅需注意本地会残留旧版本号的包文件，部署前核对 sha256 而非只看文件名
   - ✅ `docs/ppt/` 已提交入库（`228a4c3`，结项评审 PPT + handoff）
-  - ✅ `CHANGELOG.md` 已重写（工作区）：品牌改为 NexusRouter、补齐 0.12.x 全线（v0.12.7 / v0.12.6 / v0.12.0–0.12.5 合并条目 + Unreleased cleanup 段）—— 原「归 Phase 8.3」的顾虑以此方式落地
-  - ✅ 全量回归确认无功能影响：`npm test` 742/742、`typecheck` / `lint` 全绿（2026-09-01 实测）
-  - 🔲 剩余一步：本工作区 118 个文件的清理改动**尚未提交**，需一次 cleanup 提交收口
+  - ✅ `CHANGELOG.md` 已重写：品牌改为 NexusRouter、补齐 0.12.x 全线（v0.12.7 / v0.12.6 / v0.12.0–0.12.5 合并条目 + Unreleased cleanup 段）—— 原「归 Phase 8.3」的顾虑以此方式落地
+  - ✅ 清理改动已提交收口：`e8c64fa`（死代码删除 + CI/部署模板/文档口径）+ `c81a0c3`（核心管线最小 e2e）+ `541d448`（Dockerfile 改 pnpm、prettier 锁定）
+  - ✅ 全量回归确认无功能影响：`npm test` 742/742（741 通过 + 1 预期失败）、`typecheck` / `lint` 全绿（2026-09-01 实测）
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
@@ -501,7 +501,7 @@ claude   # 15维分类器自动路由，无需其他配置
 | :--------- | :------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
 | 接线范围   | ~~至少完成缓存/去重/会话/日志四类核心能力接入~~（2026-09-01 修订：日志/记账已接线 ✅；缓存/去重/会话经决策不接线，压缩模块已删） | 🟡 记账体系 ✅，其余已决策不接线                                              |
 | 主链一致性 | 所有增强能力通过统一 pipeline 接入                                                                                               | 🟡 记账经 `AccountingSwitch` 接入；统一 pipeline（5.1）随接线决策失去承载对象 |
-| 文档状态   | 各能力标注为 enabled / optional / experimental                                                                                   | ✅ README「库 API 说明」已显式标注未接线组件（2026-09-01，未提交）            |
+| 文档状态   | 各能力标注为 enabled / optional / experimental                                                                                   | ✅ README「库 API 说明」已显式标注未接线组件（2026-09-01，`e8c64fa`）            |
 
 ---
 
@@ -556,7 +556,7 @@ claude   # 15维分类器自动路由，无需其他配置
     - accounting OFF：**~582 req/s**，p50 76 ms，p95 157 ms，p99 228 ms
     - accounting ON：**~592 req/s**，p50 146 ms，p95 282 ms，p99 610 ms
   - 观察：端到端天花板受 mock 上游 + fetch 连接开销限制， accounting 批量写路径本身不再是瓶颈（与 5.6.6 的 139,537 req/s 纯写路径声明一致）。
-- [x] **7.4** ~~`Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）~~ —— ✅ **已重定性**（2026-09-01）：与 Phase 3 验收标准「Phase 7 不再包含 Docker/Compose 任务」矛盾，以验收标准为准。部署形态已由 `deploy/new-api/`（含 Dockerfile + compose，2026-09-01 工作区修复 `router.hosts: ["0.0.0.0"]` 解决 nginx 502）承载；Ollama sidecar 无实际需求，不立项
+- [x] **7.4** ~~`Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）~~ —— ✅ **已重定性**（2026-09-01）：与 Phase 3 验收标准「Phase 7 不再包含 Docker/Compose 任务」矛盾，以验收标准为准。部署形态已由 `deploy/new-api/`（含 Dockerfile + compose，`e8c64fa` 修复 `router.hosts: ["0.0.0.0"]` 解决 nginx 502）承载；Ollama sidecar 无实际需求，不立项
 - [ ] **7.5** 输出性能测试报告
 - [ ] 全量回归 + 代码评审 + 提交
 
@@ -564,7 +564,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ## 🚧 Phase 8 — 发布与生态接入
 
-> **预计时长**: ~5 天 | **状态**：8.3 的 CHANGELOG 部分已在工作区完成（未提交）；8.1 / 8.2 / 8.4 / publish 未开始
+> **预计时长**: ~5 天 | **状态**：8.3 的 CHANGELOG 部分已完成（`e8c64fa`）；8.1 / 8.2 / 8.4 / publish 未开始
 
 ### 目标
 
@@ -575,7 +575,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 - [ ] **8.1** 完整 API 文档（端点参考、Agent 配置示例、Provider 配置）
 - [ ] **8.2** README 与安装文档最终收尾
-- [ ] **8.3** CHANGELOG.md + npm publish 准备（semver、tag）—— 🟡 **CHANGELOG 已重写**（2026-09-01 工作区，含 0.12.x 全线 + Unreleased cleanup 段）；publish 准备未开始。当前版本 0.12.7
+- [ ] **8.3** CHANGELOG.md + npm publish 准备（semver、tag）—— 🟡 **CHANGELOG 已重写**（`e8c64fa`，含 0.12.x 全线 + Unreleased cleanup 段）；publish 准备未开始。当前版本 0.12.7
 - [ ] **8.4** release checklist 与发布说明
   - 🔴 **必须包含装包冒烟**（2026-08-27 D-007 教训）：`npm test` 只跑源码、从不碰打包产物，D-007（npm 安装后 CLI 静默退出）在三道门禁 100% 绿的情况下依然存在。发布前须做：真实 tgz 装进干净 `node_modules` → 经 `.bin` 调用 `--version` → 起服务 → 打一条请求 → 确认日志落盘。缺这一步，版本号绿灯不代表包能跑
 - [ ] 全量回归 + 代码评审 + 提交
