@@ -2,6 +2,9 @@
 # 每个用户透传自己的 new-api 令牌，按个人配额计费
 router:
   port: 8402
+  # 必须监听 0.0.0.0：schema 默认只绑回环（127.0.0.1/::1），容器内不改此项
+  # 会导致 nginx 跨容器 proxy_pass http://nexusrouter:8402 直接 502
+  hosts: ["0.0.0.0"]
   classifier: hybrid
   # 上游超时（毫秒）。schema 默认 1000ms 对真实 LLM 调用必超时，必须显式设置
   timeout: 300000

@@ -159,12 +159,12 @@ TIER_NAME:
 
 ### ollama
 
-| 字段              | 类型    | 默认值                   | 说明                      |
-| :---------------- | :------ | :----------------------- | :------------------------ |
-| `enabled`         | boolean | `false`                  | 是否启用 Ollama AI 分类层 |
-| `baseUrl`         | string  | `http://localhost:11434` | Ollama 服务地址           |
-| `models.fast`     | string  | `qwen3:4b`               | 快速分类模型（需先 `ollama pull`） |
-| `models.accurate` | string  | `qwen3:8b`               | 高精度分类模型                     |
+| 字段              | 类型    | 默认值                   | 说明                                    |
+| :---------------- | :------ | :----------------------- | :-------------------------------------- |
+| `enabled`         | boolean | `false`                  | 是否启用 Ollama AI 分类层               |
+| `baseUrl`         | string  | `http://localhost:11434` | Ollama 服务地址                         |
+| `models.fast`     | string  | `qwen3:4b`               | 快速分类模型（需先 `ollama pull`）      |
+| `models.accurate` | string  | `qwen3:8b`               | 高精度分类模型                          |
 | `timeout`         | number  | `800`                    | Ollama 调用超时（毫秒），到点即降级兜底 |
 
 > `enabled: false` 时分类器整块跳过 Ollama 层（Layer 2），不会向 `baseUrl` 发任何请求。`enabled: true` 而 Ollama 不可达时，每个低置信请求最多等 `timeout` 即降级兜底。
@@ -173,13 +173,13 @@ TIER_NAME:
 
 Layer 2 分类的另一种后端：OpenAI 兼容协议（`/chat/completions`），可对接 new-api 网关或 vLLM 私有部署，替代本地 Ollama。**配置了 `provider: openai-compat` 即视为启用，不看 `ollama.enabled`**（它只管 ollama 路径）；`baseUrl`/`model` 缺失则启动时告警并回退 ollama 路径。
 
-| 字段       | 类型   | 默认值     | 说明                                                         |
-| :--------- | :----- | :--------- | :----------------------------------------------------------- |
-| `provider` | string | `"ollama"` | `"ollama"`（本地）或 `"openai-compat"`（OpenAI 兼容网关）    |
-| `baseUrl`  | string | -          | 网关地址，**需含 `/v1`**；openai-compat 时必填               |
-| `apiKey`   | string | `""`       | 网关令牌，支持 `${ENV}` 展开；留空则不携带鉴权头（内网网关） |
+| 字段       | 类型   | 默认值     | 说明                                                          |
+| :--------- | :----- | :--------- | :------------------------------------------------------------ |
+| `provider` | string | `"ollama"` | `"ollama"`（本地）或 `"openai-compat"`（OpenAI 兼容网关）     |
+| `baseUrl`  | string | -          | 网关地址，**需含 `/v1`**；openai-compat 时必填                |
+| `apiKey`   | string | `""`       | 网关令牌，支持 `${ENV}` 展开；留空则不携带鉴权头（内网网关）  |
 | `model`    | string | -          | 网关上的模型名（不带 `provider/` 前缀）；openai-compat 时必填 |
-| `timeout`  | number | `800`      | 分类调用超时（毫秒），到点即降级兜底                         |
+| `timeout`  | number | `800`      | 分类调用超时（毫秒），到点即降级兜底                          |
 
 new-api 示例（用网关上的便宜模型做分类）：
 

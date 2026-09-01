@@ -42,9 +42,7 @@ describe("MODELS", () => {
   });
 
   it("all real model IDs should use provider/model format", () => {
-    const realModels = MODELS.filter(
-      (m) => !["auto", "free", "eco", "premium"].includes(m.id),
-    );
+    const realModels = MODELS.filter((m) => !["auto", "free", "eco", "premium"].includes(m.id));
     for (const model of realModels) {
       expect(model.id).toMatch(/^[a-z]+\//);
     }

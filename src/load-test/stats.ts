@@ -22,7 +22,10 @@ export function buildResult(
   memoryStart: NodeJS.MemoryUsage,
   memoryEnd: NodeJS.MemoryUsage,
 ): LoadTestResult {
-  const latencies = samples.filter((s) => s.ok).map((s) => s.latencyMs).sort((a, b) => a - b);
+  const latencies = samples
+    .filter((s) => s.ok)
+    .map((s) => s.latencyMs)
+    .sort((a, b) => a - b);
   const successes = samples.filter((s) => s.ok).length;
   const errors = samples.length - successes;
   return {

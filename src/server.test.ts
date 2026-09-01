@@ -780,11 +780,15 @@ ollama:
             instruction,
             {
               role: "assistant",
-              content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } }],
+              content: [
+                { type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } },
+              ],
             },
             {
               role: "user",
-              content: [{ type: "tool_result", tool_use_id: "t1", content: "export function foo()" }],
+              content: [
+                { type: "tool_result", tool_use_id: "t1", content: "export function foo()" },
+              ],
             },
           ],
         },
@@ -815,11 +819,15 @@ ollama:
             { role: "user", content: "重构 src/foo.ts 的错误处理" },
             {
               role: "assistant",
-              content: [{ type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } }],
+              content: [
+                { type: "tool_use", id: "t1", name: "Read", input: { path: "src/foo.ts" } },
+              ],
             },
             {
               role: "user",
-              content: [{ type: "tool_result", tool_use_id: "t1", content: "export function foo()" }],
+              content: [
+                { type: "tool_result", tool_use_id: "t1", content: "export function foo()" },
+              ],
             },
           ],
         },

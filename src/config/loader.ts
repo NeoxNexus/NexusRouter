@@ -5,11 +5,7 @@ import { getDefaultConfigPath } from "./default-config.js";
 
 export { ConfigSchema } from "./schema.js";
 export type { Config } from "./schema.js";
-export {
-  getDefaultConfigPath,
-  ensureConfigExists,
-  DEFAULT_CONFIG_YAML,
-} from "./default-config.js";
+export { getDefaultConfigPath, ensureConfigExists, DEFAULT_CONFIG_YAML } from "./default-config.js";
 
 function resolveEnvVars(obj: unknown): unknown {
   if (obj === null || obj === undefined) {

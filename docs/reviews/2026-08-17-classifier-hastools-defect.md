@@ -25,15 +25,15 @@
 
 本地 mock 上游 + 真实 CC 请求形态（带完整 tools 表 + system prompt）：
 
-| 请求内容 | hasTools | 实测 tier | 上游收到模型 |
-|:---|:---|:---|:---|
-| `hi` | false | SIMPLE | gpt-4o-mini |
-| `hi` | **true**（CC 真实形态） | **COMPLEX** | claude-sonnet-4-6 |
-| `list the files in src/` | true | **COMPLEX** | claude-sonnet-4-6 |
-| `rename foo to bar in utils.ts` | true | **COMPLEX** | claude-sonnet-4-6 |
-| `ok` | true | **COMPLEX** | claude-sonnet-4-6 |
-| 架构重构（真复杂任务） | true | COMPLEX | claude-sonnet-4-6 |
-| `prove this theorem` | true | REASONING | o3-mini |
+| 请求内容                        | hasTools                | 实测 tier   | 上游收到模型      |
+| :------------------------------ | :---------------------- | :---------- | :---------------- |
+| `hi`                            | false                   | SIMPLE      | gpt-4o-mini       |
+| `hi`                            | **true**（CC 真实形态） | **COMPLEX** | claude-sonnet-4-6 |
+| `list the files in src/`        | true                    | **COMPLEX** | claude-sonnet-4-6 |
+| `rename foo to bar in utils.ts` | true                    | **COMPLEX** | claude-sonnet-4-6 |
+| `ok`                            | true                    | **COMPLEX** | claude-sonnet-4-6 |
+| 架构重构（真复杂任务）          | true                    | COMPLEX     | claude-sonnet-4-6 |
+| `prove this theorem`            | true                    | REASONING   | o3-mini           |
 
 除命中推理关键词者，**全部钉在 COMPLEX**。琐碎请求与真复杂请求得到完全相同的档位，分类器没有产生任何区分度。
 
@@ -41,12 +41,12 @@
 
 规则顺序问题 —— 引用词检测 (`hybrid.ts:121`) 位于 hasTools 分支 (`hybrid.ts:126`) 之前：
 
-| prompt | hasTools | tier |
-|:---|:---|:---|
-| `ok` | true | **COMPLEX** |
-| `继续` | true | **MEDIUM** |
-| `继续修改上面的文件` | true | MEDIUM |
-| `ok` | false | SIMPLE |
+| prompt               | hasTools | tier        |
+| :------------------- | :------- | :---------- |
+| `ok`                 | true     | **COMPLEX** |
+| `继续`               | true     | **MEDIUM**  |
+| `继续修改上面的文件` | true     | MEDIUM      |
+| `ok`                 | false    | SIMPLE      |
 
 `ok` 拿到了比 `继续` **更贵**的档位。而 `继续` 是明确需要上文的指代型请求，语义上更难却降了一档。这是把"能力约束"表达成"复杂度 tier"之后，两条规则在同一维度互相踩踏的直接产物 —— 属建模问题，非配置问题。
 
@@ -54,10 +54,10 @@
 
 `CLAUDE_CODE_EFFORT_LEVEL: max` 会让 CC 请求携带 `thinking` 字段，`claudeCodeProfile.computeWeights` (`profile.ts:90`) 据此把 tier 顶到至少 REASONING。同一个"列出 src/ 下的文件"：
 
-| 请求 | tier | 上游收到 |
-|:---|:---|:---|
-| 带 thinking | REASONING | o3-mini |
-| 不带 thinking | COMPLEX | claude-sonnet-4-6 |
+| 请求          | tier      | 上游收到          |
+| :------------ | :-------- | :---------------- |
+| 带 thinking   | REASONING | o3-mini           |
+| 不带 thinking | COMPLEX   | claude-sonnet-4-6 |
 
 **列目录被路由到了推理模型**。既不省钱，且 o3-mini 本身不擅长工具调用类任务。
 
@@ -65,10 +65,10 @@
 
 `src/models.ts` 实际定价：
 
-| 模型 | 输入 /1M | 输出 /1M |
-|:---|---:|---:|
-| gpt-4o-mini (SIMPLE) | $0.15 | $0.60 |
-| claude-sonnet-4.6 (COMPLEX) | $3.00 | $15.00 |
+| 模型                        | 输入 /1M | 输出 /1M |
+| :-------------------------- | -------: | -------: |
+| gpt-4o-mini (SIMPLE)        |    $0.15 |    $0.60 |
+| claude-sonnet-4.6 (COMPLEX) |    $3.00 |   $15.00 |
 
 **输入 20 倍、输出 25 倍**，乘在 CC 挂机时的绝大部分流量上。
 
@@ -111,10 +111,10 @@
 
 `hasTools` 应拆成两条独立通路：
 
-| 维度 | 归属 | 做法 |
-|:---|:---|:---|
-| 能力 | `filterByToolCalling` | 把 `router/selector` 接进 `server.ts` 主链路 |
-| 复杂度 | `heuristicClassify` | `hasTools` 降为置信度加权信号，删除 Layer 0 硬跳转 |
+| 维度   | 归属                  | 做法                                               |
+| :----- | :-------------------- | :------------------------------------------------- |
+| 能力   | `filterByToolCalling` | 把 `router/selector` 接进 `server.ts` 主链路       |
+| 复杂度 | `heuristicClassify`   | `hasTools` 降为置信度加权信号，删除 Layer 0 硬跳转 |
 
 配套改动：
 
@@ -130,14 +130,14 @@
 
 已在 `src/logger.ts` 增加 `logRoutingDecision`，主链路每请求落一条结构化日志。关键字段：
 
-| 字段 | 用途 |
-|:---|:---|
-| `hasTools` | 确认是否恒为 true |
-| `hasThinking` | 确认 thinking 字段出现频率 |
-| `classifierTier` / `finalTier` | 对比 hint 融合前后差异，量化 profile 影响 |
-| `reason` | 命中哪条规则（`has-tools` / `reasoning-keyword` / `reference-pattern` / …）|
-| `layer` | 验证 heuristic / ai 层是否真的从未执行 |
-| `promptPreview` | 人工判断该请求"本应"是什么档位 |
+| 字段                           | 用途                                                                        |
+| :----------------------------- | :-------------------------------------------------------------------------- |
+| `hasTools`                     | 确认是否恒为 true                                                           |
+| `hasThinking`                  | 确认 thinking 字段出现频率                                                  |
+| `classifierTier` / `finalTier` | 对比 hint 融合前后差异，量化 profile 影响                                   |
+| `reason`                       | 命中哪条规则（`has-tools` / `reasoning-keyword` / `reference-pattern` / …） |
+| `layer`                        | 验证 heuristic / ai 层是否真的从未执行                                      |
+| `promptPreview`                | 人工判断该请求"本应"是什么档位                                              |
 
 预期观测结果（若分析成立）：
 
@@ -147,12 +147,12 @@
 
 ### 6.1 观测环境
 
-| 项 | 值 |
-|:---|:---|
-| 上游 | `https://gorouter.app`（new-api），`passthroughApiKey: true` |
+| 项       | 值                                                                                                                               |
+| :------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| 上游     | `https://gorouter.app`（new-api），`passthroughApiKey: true`                                                                     |
 | 档位映射 | SIMPLE → `claude-opus-4-8`、MEDIUM → `claude-opus-4-8-thinking`、COMPLEX → `claude-opus-5`、REASONING → `claude-opus-5-thinking` |
-| 接入方式 | CC-Switch 供应商 → `http://127.0.0.1:8402/anthropic`，模型设为 `Auto` |
-| 日志位置 | `~/.nexusrouter/logs/routing-YYYY-MM-DD.jsonl` |
+| 接入方式 | CC-Switch 供应商 → `http://127.0.0.1:8402/anthropic`，模型设为 `Auto`                                                            |
+| 日志位置 | `~/.nexusrouter/logs/routing-YYYY-MM-DD.jsonl`                                                                                   |
 
 ### 6.2 分析命令
 

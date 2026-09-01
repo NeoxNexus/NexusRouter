@@ -34,7 +34,11 @@ interface RuleResult {
 }
 
 /** First match across a regex plus a keyword list, or undefined when neither fires. */
-function firstMatch(text: string, pattern: RegExp, keywords: readonly string[]): string | undefined {
+function firstMatch(
+  text: string,
+  pattern: RegExp,
+  keywords: readonly string[],
+): string | undefined {
   return pattern.exec(text)?.[0] ?? keywords.find((k) => text.includes(k));
 }
 

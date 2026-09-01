@@ -1,6 +1,42 @@
 # Changelog
 
-All notable changes to ClawRouter.
+All notable changes to NexusRouter (formerly ClawRouter).
+
+---
+
+## Unreleased — cleanup
+
+- **CI fixed** — the lifecycle/security-scanner integration tests referenced modules that never existed in this repo (`src/proxy.js`, `src/auth.js`) and failed on every run; they are removed and CI now runs the full unit suite (739 tests) on every push
+- **Legacy ClawRouter/BlockRun test files deleted** — `test/` contained solana/wallet/x402 leftovers that were never runnable; `test/integration/`, `test/docker/`, `skills/clawrouter/`, the ClawRouter-era `scripts/{install,uninstall,update,reinstall}` helpers and ~10 dead npm scripts removed
+- **Dead code deleted** — `src/compression/` (~1,170 lines, never wired), `src/journal.ts`, `src/report.ts`, `src/updater.ts` (placeholder URL), `src/router/llm-classifier.ts`
+- **Docs aligned with reality** — README/package.json no longer advertise "15-dimension scoring" as the built-in classifier (it is a library API; the server uses HybridClassifier); library-only exports (SessionStore, RequestDeduplicator, ResponseCache, fetchWithRetry, typed errors) are now explicitly documented as not wired into the server pipeline
+- **deploy/new-api template fixed** — added `router.hosts: ["0.0.0.0"]`; the default loopback-only binding made nginx→nexusrouter proxy_pass fail with 502 in Docker
+- Lint clean (2 errors fixed), full-repo Prettier pass
+
+## v0.12.7 — Aug 2026
+
+- **fix(cli)** — `nexusrouter` silently exiting after npm install; `router.port` in config.yaml being ignored
+- docs: roadmap D-007/D-008, install-level verification notes
+
+## v0.12.6 — Aug 2026
+
+- **fix(routing)** — retry false-positives and inflated confidence on stale text; classification tuning log fields (D-005/D-006)
+- **fix(usage-defense)** — fallback-estimation wiring; new-api alignment gaps
+- **fix(accounting)** — estimate tokens from text length when upstream omits usage (MiniMax all-zero fix)
+- **feat(openai)** — auto-inject `stream_options.include_usage`
+- **feat(display)** — amounts shown in ¥
+- **fix(classifier)** — one-way ratchet pinning Claude Code traffic to the top two tiers (D-002)
+- **fix(cli)** — API-key passthrough on by default; first launch no longer demands a server key
+
+## v0.12.0 – v0.12.5 — Mar–Aug 2026 (consolidated)
+
+- Rebrand ClawRouter → NexusRouter; baseline deployment on `deploy/new-api` (nginx + passthrough keys)
+- Embedded default config template auto-created at `~/.nexus-router/config.yaml` on first launch; unified log/cache paths under `~/.nexus-router`
+- HybridClassifier overhaul: word-boundary keywords, tool-intent detection, Claude Code injection stripping, thinking toggle (D-001); Layer 2 gains an OpenAI-compatible provider (new-api / vLLM)
+- Savings Ledger: tiered pricing + counterfactual baseline, ledger batch writer, usage capture, `stats`/`report` CLI subcommands
+- Web dashboard at `/dashboard` (SSE, Chinese metrics, savings display) replacing the terminal TUI
+- Server binds loopback dual-stack by default; `router.hosts` to expose explicitly
+- Local load-test baseline tooling
 
 ---
 

@@ -77,7 +77,9 @@ export class OllamaClient {
     } catch (error) {
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Classification failed: Request timeout after ${this.timeout}ms`, { cause: error });
+        throw new Error(`Classification failed: Request timeout after ${this.timeout}ms`, {
+          cause: error,
+        });
       }
       throw new Error(
         `Classification failed: ${error instanceof Error ? error.message : "Unknown error"}`,

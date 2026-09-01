@@ -16,6 +16,7 @@
 **位置**: `src/server.ts:304`
 
 **问题**: 原实现把 `hintRank` 先 floor 到 2/3，再用 `0.5/0.5` 权重与 classifierRank 平均后 `Math.round`。
+
 - SIMPLE + thinking complex → `Math.round(2×0.5 + 0×0.5) = 1` → **MEDIUM**（文档承诺至少 COMPLEX）
 - SIMPLE + thinking reasoning → `Math.round(3×0.5 + 0×0.5) = 2` → **COMPLEX**（文档承诺至少 REASONING）
 
@@ -57,15 +58,15 @@
 
 ## 二、清理/建议项及处置
 
-| # | 发现 | 处置 | 原因 |
-|:--|:--|:--|:--|
-| 1 | `server.test.ts` 多个集成测试重复 boilerplate | **未处理** | 当前 describe 已有 `readLogEntries` / `mockUpstream`；抽取 helper 会提高耦合，且非缺陷。 |
-| 2 | `hybrid.ts` 中 `REASONING_PATTERN`/`COMPLEX_PATTERN`/`HEURISTIC_REASONING_PATTERN` 三处重复 `\b(...join('|'))\b` 模板 | **未处理** | 三处目标不同（Layer 0 精确、Layer 1 更宽、复杂关键词），抽成 helper 会牺牲可读性；且关键词均为纯字母，当前无 metachar 风险。 |
-| 3 | `server.ts` 中 `!!unified.hasTools` 与 `unified.hasTools` 混用 | **未处理** | `UnifiedRequest.hasTools` 已声明为 `boolean`，但 `!!` 是防御性习惯；统一风格属于 formatting，非 bug。 |
-| 4 | `resolveWeightedTier` 中 floor 使用字面量 2/3 | **已部分修复** | 修复 #1 时保留了 `floor` 变量；未抽取到 `TIER_RANK` 是因为 `TIER_RANK` 已经存在，两处使用语义不同（hint vs floor），抽取反而混淆。 |
-| 5 | `server.ts` 重复 `unified.rawBody as Record<string, unknown>` 模式 | **未处理** | `UnifiedRequest.rawBody` 当前类型为 `unknown`，cast 是过渡形态；Phase 3 给 `rawBody` 加类型联合时统一改。 |
-| 6 | `hybrid.ts` `COMPLEX_KEYWORDS` 用 list+join 而非字面量 | **未处理** | 与 #2 同理，当前关键词无 metachar；literal 不会显著更短。 |
-| 7 | `requiresTools` 升级只在启发式层，不覆盖规则层命中 | **未处理（设计如此）** | 规则层已编码复杂度（greeting/thanks/reasoning/reference/complex keyword），能力约束应归 `filterByToolCalling`；当前部署四档均支持工具，无实际风险。 |
+| #   | 发现                                                                                                      | 处置                   | 原因                                                                                                                                                |
+| :-- | :-------------------------------------------------------------------------------------------------------- | :--------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `server.test.ts` 多个集成测试重复 boilerplate                                                             | **未处理**             | 当前 describe 已有 `readLogEntries` / `mockUpstream`；抽取 helper 会提高耦合，且非缺陷。                                                            |
+| 2   | `hybrid.ts` 中 `REASONING_PATTERN`/`COMPLEX_PATTERN`/`HEURISTIC_REASONING_PATTERN` 三处重复 `\b(...join(' | '))\b` 模板            | **未处理**                                                                                                                                          | 三处目标不同（Layer 0 精确、Layer 1 更宽、复杂关键词），抽成 helper 会牺牲可读性；且关键词均为纯字母，当前无 metachar 风险。 |
+| 3   | `server.ts` 中 `!!unified.hasTools` 与 `unified.hasTools` 混用                                            | **未处理**             | `UnifiedRequest.hasTools` 已声明为 `boolean`，但 `!!` 是防御性习惯；统一风格属于 formatting，非 bug。                                               |
+| 4   | `resolveWeightedTier` 中 floor 使用字面量 2/3                                                             | **已部分修复**         | 修复 #1 时保留了 `floor` 变量；未抽取到 `TIER_RANK` 是因为 `TIER_RANK` 已经存在，两处使用语义不同（hint vs floor），抽取反而混淆。                  |
+| 5   | `server.ts` 重复 `unified.rawBody as Record<string, unknown>` 模式                                        | **未处理**             | `UnifiedRequest.rawBody` 当前类型为 `unknown`，cast 是过渡形态；Phase 3 给 `rawBody` 加类型联合时统一改。                                           |
+| 6   | `hybrid.ts` `COMPLEX_KEYWORDS` 用 list+join 而非字面量                                                    | **未处理**             | 与 #2 同理，当前关键词无 metachar；literal 不会显著更短。                                                                                           |
+| 7   | `requiresTools` 升级只在启发式层，不覆盖规则层命中                                                        | **未处理（设计如此）** | 规则层已编码复杂度（greeting/thanks/reasoning/reference/complex keyword），能力约束应归 `filterByToolCalling`；当前部署四档均支持工具，无实际风险。 |
 
 ---
 

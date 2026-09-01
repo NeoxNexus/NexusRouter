@@ -18,21 +18,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Check formatting
-        run: npx prettier --check .
+        run: pnpm format:check
 
       - name: Lint
-        run: npx eslint src/
+        run: pnpm lint
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm typecheck
 
   build-and-test:
     name: Build & Test
@@ -40,15 +42,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: npm run build
+        run: pnpm build
 
-      - name: Integration tests (lifecycle)
-        run: npx vitest run --config vitest.integration.config.ts test/integration/lifecycle.test.ts
+      - name: Unit tests
+        run: pnpm test

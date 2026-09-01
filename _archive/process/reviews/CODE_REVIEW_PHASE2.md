@@ -2,23 +2,26 @@
 
 **审查时间**: 2026-03-05  
 **审查范围**: `src/adapter/` (7 files) + `src/server.ts`  
-**评分**: ⭐⭐⭐½ / 5  —— 架构清晰、设计合理，存在若干工程质量问题需修复
+**评分**: ⭐⭐⭐½ / 5 —— 架构清晰、设计合理，存在若干工程质量问题需修复
 
 ---
 
 ## 🟢 优点
 
 ### 1. 架构设计 — 清晰合理
+
 - **策略模式** (`ProtocolAdapter`) 边界清晰，新增协议只需实现接口
 - **插件模式** (`AgentProfile`) 不侵入核心，`openClawProfile` 零改造即可使用
 - **动态加权** (`resolveWeightedTier`) 优雅地融合 hint 和 classifier，参数化权重
 - **职责单一**：`detectProtocol`/`extractAgentFromPath` 各司其职，O(1) 时间
 
 ### 2. 向后兼容 — 无破坏性变更
+
 - 原 `/v1/chat/completions` 和 `/v1/messages` 路由保留
 - 现有测试 315 个全部通过
 
 ### 3. 类型安全
+
 - 所有核心接口有完整 TypeScript 类型，`tsc --noEmit` 零错误
 
 ---
@@ -35,7 +38,7 @@ reply.header("Cache-Control", "no-cache");
 reply.header("Connection", "keep-alive");
 
 reply.raw.writeHead(result.status, {  // ← 这里才是真正生效的
-  "Content-Type": "text/event-stream",  
+  "Content-Type": "text/event-stream",
   ...
 });
 
@@ -77,9 +80,9 @@ try {
 // ❌ 问题：函数签名里有 inline import，代码可读性差，不规范
 function resolveWeightedTier(
   classifierResult: { tier: string; confidence: number },
-  hints: import("./adapter/types.js").AgentHints,  // ← 丑陋
+  hints: import("./adapter/types.js").AgentHints, // ← 丑陋
   weights: import("./adapter/types.js").ClassifierWeights,
-)
+);
 
 // ✅ 修复：在文件顶部 import AgentHints, ClassifierWeights
 ```
@@ -170,16 +173,16 @@ maxTokens: req.max_tokens ?? 8192,
 
 ## 📋 汇总
 
-| 严重程度 | 问题 | 文件 |
-|:---------|:-----|:-----|
-| 🔴 高 | Passthrough 未实现，注释误导 | `anthropic.ts:96` |
-| 🔴 高 | API Key 透传安全漏洞 | `server.ts:161` |
-| 🔴 高 | `max_tokens` 未设默认值，上游会报错 | `anthropic.ts:83` |
-| 🟡 中 | Stream 响应头重复设置 | `server.ts:175` |
-| 🟡 中 | Stream 错误未捕获 | `server.ts:186` |
-| 🟡 中 | 内联 import 类型丑陋 | `server.ts:210` |
-| 🟡 中 | Adapter 重复实例化 | `server.ts:49` |
-| 🟢 低 | 死代码 `AGENT_PROTOCOL_MAP` | `server.ts:23` |
+| 严重程度 | 问题                                | 文件              |
+| :------- | :---------------------------------- | :---------------- |
+| 🔴 高    | Passthrough 未实现，注释误导        | `anthropic.ts:96` |
+| 🔴 高    | API Key 透传安全漏洞                | `server.ts:161`   |
+| 🔴 高    | `max_tokens` 未设默认值，上游会报错 | `anthropic.ts:83` |
+| 🟡 中    | Stream 响应头重复设置               | `server.ts:175`   |
+| 🟡 中    | Stream 错误未捕获                   | `server.ts:186`   |
+| 🟡 中    | 内联 import 类型丑陋                | `server.ts:210`   |
+| 🟡 中    | Adapter 重复实例化                  | `server.ts:49`    |
+| 🟢 低    | 死代码 `AGENT_PROTOCOL_MAP`         | `server.ts:23`    |
 
 **建议**: 高优先级问题（1-3）在下一次提交前修复，其余在 Phase 3 中统一处理。
 

@@ -6,10 +6,6 @@ export default defineConfig({
     // performance regression gates, dashboard SSE lifecycle) stable on Windows
     // dev machines where concurrent file watchers and event-loop handles flake.
     fileParallelism: false,
-    exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/test/integration/**", // Exclude old integration tests that reference removed modules
-    ],
+    exclude: ["**/node_modules/**", "**/dist/**"],
   },
 });

@@ -19,19 +19,19 @@ NexusRouter 不收钱。移植预扣/结算/退款状态机 = 引入 400+ 行状
 
 NexusRouter 需要的是 **counterfactual accounting（反事实记账）**，只求三个数：
 
-| 指标 | 含义 |
-|:--|:--|
-| `costUsd` | 这条请求**实际**花了多少 |
+| 指标              | 含义                              |
+| :---------------- | :-------------------------------- |
+| `costUsd`         | 这条请求**实际**花了多少          |
 | `baselineCostUsd` | 不经过 NexusRouter **本会**花多少 |
-| `savedUsd` | 差额 |
+| `savedUsd`        | 差额                              |
 
 难点完全不在原子性，而在下面三点：
 
-| 难点 | 当前状态 |
-|:--|:--|
-| 真实 token 从哪来 | **完全没有** —— `src/server.ts` 全文无 `usage` 字样 |
-| baseline 如何定义才站得住脚 | 硬编码"永远全用 Opus"，是虚荣指标 |
-| 缓存 token 如何计价 | `models.ts` 中 `cacheRead: 0, cacheWrite: 0`，而这是 Claude 上最大的真实成本项 |
+| 难点                        | 当前状态                                                                       |
+| :-------------------------- | :----------------------------------------------------------------------------- |
+| 真实 token 从哪来           | **完全没有** —— `src/server.ts` 全文无 `usage` 字样                            |
+| baseline 如何定义才站得住脚 | 硬编码"永远全用 Opus"，是虚荣指标                                              |
+| 缓存 token 如何计价         | `models.ts` 中 `cacheRead: 0, cacheWrite: 0`，而这是 Claude 上最大的真实成本项 |
 
 ---
 
@@ -39,18 +39,18 @@ NexusRouter 需要的是 **counterfactual accounting（反事实记账）**，�
 
 写侧（`logger.ts`）与读侧（`stats.ts` / `report.ts`）都存在，**中间从未接线**。
 
-| # | 缺陷 | 证据 | 严重级别 |
-|:--|:--|:--|:--:|
-| 1 | `logUsage()` 零调用点 | 全仓 grep 仅命中定义 `src/logger.ts:50`、re-export `src/index.ts:66`、`stats.ts` 的 import | 🔴 高 |
-| 2 | `stats.ts` / `report.ts` 亦为孤儿 | `src/cli.ts` 仅有 `doctor` / `--port` / `--config` / `--help` / `--version`，**无 `stats` / `report` 子命令**，报表子系统对用户不可达 | 🔴 高 |
-| 3 | 上游 usage 从不解析 | `ForwardResult` 仅 `{status, headers, body, isStream}`；`server.ts:288-293` `JSON.parse` 后直接 send，从不读 `usage` | 🔴 高 |
-| 4 | 美元数字是虚构的 | `selector.ts` 用 `maxOutputTokens`（请求上限）而非实际产出算 output 成本，系统性高估。比例尚可看，绝对值不可用 | 🔴 高 |
-| 5 | `savings` 一名两义 | `logger.ts:22` 声明 0-1 比例；`stats.ts:119` 的 `totalSavings` 是美元。`stats.ts:61` 解析了 `entry.savings` 却从不聚合 | 🟠 中 |
-| 6 | baseline 是虚荣指标 | `BASELINE_MODEL_ID = "anthropic/claude-opus-4.6"`（$5/$25），"省钱"永远相对于"全程用 Opus"，而无人会那样用 | 🟠 中 |
-| 7 | 标签已过期 | `stats.ts:233` 打印 `Baseline Cost (Opus 4.5)`，常量却是 `4.6` | 🟢 低 |
-| 8 | `entriesWithBaseline` 检测脆弱 | 靠 `totalBaselineCost !== totalCost` 反推，路由恰好选中 baseline 模型时静默漏计 | 🟠 中 |
-| 9 | 成本公式复制粘贴 | `selectModel`（`selector.ts:44-62`）与 `calculateModelCost`（`:99-119`）逐行重复 | 🟢 低 |
-| 10 | `routingProfile === "premium"` 强制 `savings = 0` | 设计如此，但导致 premium 用户报表全零，需在报表侧区分口径 | 🟢 低 |
+| #   | 缺陷                                              | 证据                                                                                                                                  | 严重级别 |
+| :-- | :------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------ | :------: |
+| 1   | `logUsage()` 零调用点                             | 全仓 grep 仅命中定义 `src/logger.ts:50`、re-export `src/index.ts:66`、`stats.ts` 的 import                                            |  🔴 高   |
+| 2   | `stats.ts` / `report.ts` 亦为孤儿                 | `src/cli.ts` 仅有 `doctor` / `--port` / `--config` / `--help` / `--version`，**无 `stats` / `report` 子命令**，报表子系统对用户不可达 |  🔴 高   |
+| 3   | 上游 usage 从不解析                               | `ForwardResult` 仅 `{status, headers, body, isStream}`；`server.ts:288-293` `JSON.parse` 后直接 send，从不读 `usage`                  |  🔴 高   |
+| 4   | 美元数字是虚构的                                  | `selector.ts` 用 `maxOutputTokens`（请求上限）而非实际产出算 output 成本，系统性高估。比例尚可看，绝对值不可用                        |  🔴 高   |
+| 5   | `savings` 一名两义                                | `logger.ts:22` 声明 0-1 比例；`stats.ts:119` 的 `totalSavings` 是美元。`stats.ts:61` 解析了 `entry.savings` 却从不聚合                |  🟠 中   |
+| 6   | baseline 是虚荣指标                               | `BASELINE_MODEL_ID = "anthropic/claude-opus-4.6"`（$5/$25），"省钱"永远相对于"全程用 Opus"，而无人会那样用                            |  🟠 中   |
+| 7   | 标签已过期                                        | `stats.ts:233` 打印 `Baseline Cost (Opus 4.5)`，常量却是 `4.6`                                                                        |  🟢 低   |
+| 8   | `entriesWithBaseline` 检测脆弱                    | 靠 `totalBaselineCost !== totalCost` 反推，路由恰好选中 baseline 模型时静默漏计                                                       |  🟠 中   |
+| 9   | 成本公式复制粘贴                                  | `selectModel`（`selector.ts:44-62`）与 `calculateModelCost`（`:99-119`）逐行重复                                                      |  🟢 低   |
+| 10  | `routingProfile === "premium"` 强制 `savings = 0` | 设计如此，但导致 premium 用户报表全零，需在报表侧区分口径                                                                             |  🟢 低   |
 
 ---
 
@@ -92,11 +92,11 @@ flowchart TB
 
 Claude Code 从不发 `"auto"` —— 它发的是真实模型名（`claude-sonnet-4-5` / `claude-haiku` / `opus`）。因此"不装 NexusRouter 这条请求会打到哪"这个问题，答案**白送在请求里**；而 `RoutingLogEntry.requestedModel`（`logger.ts:72`）**已经在记录**，只是从未用于计价。
 
-| 模式 | 定义 | 适用场景 |
-|:--|:--|:--|
+| 模式                    | 定义                                         | 适用场景                           |
+| :---------------------- | :------------------------------------------- | :--------------------------------- |
 | `requested`（建议默认） | 用同一份 usage 按 `unified.model` 的价格重算 | Claude Code / Cursor —— 真实反事实 |
-| `reference` | 用户配置一个参照模型 | OpenClaw 等真发 `auto` 的客户端 |
-| `off` | 只记实际成本，不记省钱 | 不接受虚荣指标的用户 |
+| `reference`             | 用户配置一个参照模型                         | OpenClaw 等真发 `auto` 的客户端    |
+| `off`                   | 只记实际成本，不记省钱                       | 不接受虚荣指标的用户               |
 
 **必须写进字段与文档的 caveat**：`baselineMethod: "same-usage-repricing"` —— 该方法假设 baseline 模型产出**相同 token 数**。此假设不严格成立（Opus 可能更简洁也可能更啰嗦）。**标注出来，不要假装是精确值**。这是该指标能否被外部信任的分界线。
 
@@ -133,8 +133,12 @@ class TailWindow {
   private buf = new Uint8Array(4096);
   private pos = 0;
   private wrapped = false;
-  push(chunk: Uint8Array): void { /* set() 直写，跨界拆两段 */ }
-  text(): string { /* 仅在流结束时调用一次 */ }
+  push(chunk: Uint8Array): void {
+    /* set() 直写，跨界拆两段 */
+  }
+  text(): string {
+    /* 仅在流结束时调用一次 */
+  }
 }
 
 // ❌ 禁止：逐 chunk Buffer.concat 累积       → 52.3 ms / 191KB 流（1100×）
@@ -156,11 +160,11 @@ class TailWindow {
 
 **这是实测推翻初版设计的一条。** 初版打算沿用 `logger.ts` 现有的「每请求一次 `appendFile`」，为 usage 再开一个独立文件。实测表明这会**把现有吞吐上限直接砍半**：
 
-| 落盘策略 | 吞吐上限 | 事件循环延迟 avg / max |
-|:--|--:|:--|
-| `appendFile` ×1（**现状** routing 日志） | 2,959 req/s | 0.006 / 2.97 ms |
-| `appendFile` ×2（初版：独立 `usage-*.jsonl`） | **1,522 req/s** ❌ | 0.006 / 3.89 ms |
-| 批量 flush（满 64 行或 200ms） | **139,537 req/s** ✅ | 0.006 / 0.40 ms |
+| 落盘策略                                      |             吞吐上限 | 事件循环延迟 avg / max |
+| :-------------------------------------------- | -------------------: | :--------------------- |
+| `appendFile` ×1（**现状** routing 日志）      |          2,959 req/s | 0.006 / 2.97 ms        |
+| `appendFile` ×2（初版：独立 `usage-*.jsonl`） |   **1,522 req/s** ❌ | 0.006 / 3.89 ms        |
+| 批量 flush（满 64 行或 200ms）                | **139,537 req/s** ✅ | 0.006 / 0.40 ms        |
 
 根因：每请求两次 `open/write/close` 打满 libuv 默认 4 线程的 threadpool。
 
@@ -170,8 +174,8 @@ class TailWindow {
 
 ```ts
 interface LedgerWriter {
-  append(entry: UsageEntryV2): void;   // 同步入内存队列，不 await
-  flush(): Promise<void>;              // 满 64 行 / 200ms / 进程退出时触发
+  append(entry: UsageEntryV2): void; // 同步入内存队列，不 await
+  flush(): Promise<void>; // 满 64 行 / 200ms / 进程退出时触发
 }
 ```
 
@@ -193,22 +197,22 @@ interface LedgerWriter {
 
 三条捕获路径成本差 **220×**，一刀切会因为贵的那条把免费的也关掉：
 
-| 路径 | 实测成本 | 关闭优先级 |
-|:--|--:|:--|
-| 非流式捕获（复用既有 `JSON.parse`） | +0.1 µs | 几乎没有关闭理由 |
-| 流式捕获（4KB 环形窗） | +22 µs | 出问题**第一个**关这个 |
-| 落盘（批量 flush 摊薄后） | +14 µs | 关掉仍可保留响应头/内存态统计 |
+| 路径                                | 实测成本 | 关闭优先级                    |
+| :---------------------------------- | -------: | :---------------------------- |
+| 非流式捕获（复用既有 `JSON.parse`） |  +0.1 µs | 几乎没有关闭理由              |
+| 流式捕获（4KB 环形窗）              |   +22 µs | 出问题**第一个**关这个        |
+| 落盘（批量 flush 摊薄后）           |   +14 µs | 关掉仍可保留响应头/内存态统计 |
 
 #### L1 热切换：当前做不到，必须补
 
 **现状阻碍**：`loadConfig()` 仅在启动时调用一次（`config/loader.ts:71`），config 被 `createServer` 闭包捕获后传入 `handleUnified`。**改 `config.yaml` 必须重启进程才生效** —— 不满足"及时"。
 
-| 方案 | 判定 | 理由 |
-|:--|:--:|:--|
-| `fs.watch(configPath)` + 200ms debounce，**仅**热更新 `accounting.*` 子树 | ✅ 采纳 | 跨平台可靠；限定子树避免热改 provider/apiKey 造成半初始化状态 |
-| `SIGHUP` 重载 | ❌ 否决 | **Windows 不支持**（Node 在 win32 上 SIGHUP 语义是控制台关闭），而本项目主平台为 win32 |
-| 环境变量 | ❌ 否决 | 同样需要重启，未解决问题 |
-| 新增 HTTP 管理端点 | ❌ 否决 | 流量咽喉的代理增加**可变更状态**的端点会扩大攻击面。即便监听已收回回环双栈（commit `c2bf803`），仍属不必要风险。若确需，必须回环 only + 显式 opt-in + 默认关闭 |
+| 方案                                                                      |  判定   | 理由                                                                                                                                                           |
+| :------------------------------------------------------------------------ | :-----: | :------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fs.watch(configPath)` + 200ms debounce，**仅**热更新 `accounting.*` 子树 | ✅ 采纳 | 跨平台可靠；限定子树避免热改 provider/apiKey 造成半初始化状态                                                                                                  |
+| `SIGHUP` 重载                                                             | ❌ 否决 | **Windows 不支持**（Node 在 win32 上 SIGHUP 语义是控制台关闭），而本项目主平台为 win32                                                                         |
+| 环境变量                                                                  | ❌ 否决 | 同样需要重启，未解决问题                                                                                                                                       |
+| 新增 HTTP 管理端点                                                        | ❌ 否决 | 流量咽喉的代理增加**可变更状态**的端点会扩大攻击面。即便监听已收回回环双栈（commit `c2bf803`），仍属不必要风险。若确需，必须回环 only + 显式 opt-in + 默认关闭 |
 
 #### L2 自动降级：只在 I/O 侧做，CPU 侧不做
 
@@ -228,22 +232,29 @@ interface LedgerWriter {
 
 - `/health` 扩展（`server.ts:411` 目前只返回 `{status, timestamp}`）：
   ```jsonc
-  { "status": "ok", "timestamp": 1755561600000,
-    "accounting": { "enabled": true, "captureStreaming": false,
-                    "persist": false, "degraded": true,
-                    "degradedReason": "ledger-queue-overflow×3" } }
+  {
+    "status": "ok",
+    "timestamp": 1755561600000,
+    "accounting": {
+      "enabled": true,
+      "captureStreaming": false,
+      "persist": false,
+      "degraded": true,
+      "degradedReason": "ledger-queue-overflow×3",
+    },
+  }
   ```
 - 自动降级时 WARN **一次**，不刷屏
 - `nexus stats` 报表须标注该时段是否降级过 —— 否则数据缺口会被误读成"这段时间没省钱"
 
 #### 关闭必须真便宜（实测确认）
 
-| 写法（800 chunk / 191KB 流） | 耗时 | 相对基线 |
-|:--|--:|:--|
-| 当前代码（无开关、无记账） | 0.0107 ms | 基线 |
+| 写法（800 chunk / 191KB 流）                                                   |      耗时 | 相对基线   |
+| :----------------------------------------------------------------------------- | --------: | :--------- |
+| 当前代码（无开关、无记账）                                                     | 0.0107 ms | 基线       |
 | 关闭：`const sniffer = enabled ? new TailWindow() : null` + `sniffer?.push(c)` | 0.0061 ms | **噪声内** |
-| 关闭：双循环体（"零残留"写法） | 0.0106 ms | 噪声内 |
-| 开启 | 0.0330 ms | +22 µs |
+| 关闭：双循环体（"零残留"写法）                                                 | 0.0106 ms | 噪声内     |
+| 开启                                                                           | 0.0330 ms | +22 µs     |
 
 **结论：关闭后残留开销低于测量噪声（±5 µs），不需要为"关闭时零残留"写两份循环体。** 一个 `?.` 即可，代码不必为此重复。
 
@@ -263,11 +274,11 @@ ROADMAP Phase 5 验收标准已有一条「各能力标注为 enabled / optional
 
 ### 5.1 CPU
 
-| 场景 | 当前代码 | 加记账后 | 净增 |
-|:--|--:|--:|--:|
-| 典型 CC 回答（800 chunk / 191KB） | 0.023 ms | 0.069 ms | **+0.046 ms**（57 ns/chunk） |
-| 超长流（8000 chunk / 1.87MB） | 0.030 ms | 0.372 ms | **+0.342 ms**（43 ns/chunk） |
-| 非流式（body 本来就 `JSON.parse`） | 0.0058 ms | 0.0059 ms | **+0.0001 ms** |
+| 场景                               |  当前代码 |  加记账后 |                         净增 |
+| :--------------------------------- | --------: | --------: | ---------------------------: |
+| 典型 CC 回答（800 chunk / 191KB）  |  0.023 ms |  0.069 ms | **+0.046 ms**（57 ns/chunk） |
+| 超长流（8000 chunk / 1.87MB）      |  0.030 ms |  0.372 ms | **+0.342 ms**（43 ns/chunk） |
+| 非流式（body 本来就 `JSON.parse`） | 0.0058 ms | 0.0059 ms |               **+0.0001 ms** |
 
 参照系：一次 CC 请求上游耗时 2–60 秒，`+0.046ms` 约为 8 秒对话的 **0.0006%**；分类器自身预算为 <10ms，记账开销是其 **1/200**。
 
@@ -275,10 +286,10 @@ ROADMAP Phase 5 验收标准已有一条「各能力标注为 enabled / optional
 
 ### 5.2 内存
 
-| 窗口尺寸 | 每连接 | 1000 路并发 |
-|:--|--:|--:|
-| 8KB（初版） | 5.9 KB | 5.79 MB |
-| **4KB（采纳）** | ~3 KB | **~2.9 MB** |
+| 窗口尺寸        | 每连接 | 1000 路并发 |
+| :-------------- | -----: | ----------: |
+| 8KB（初版）     | 5.9 KB |     5.79 MB |
+| **4KB（采纳）** |  ~3 KB | **~2.9 MB** |
 
 窗口为预分配定长，**流多大都不增长** —— 1.87MB 流与 191KB 流占用完全相同。
 
@@ -286,12 +297,12 @@ ROADMAP Phase 5 验收标准已有一条「各能力标注为 enabled / optional
 
 同一个"尾窗"功能，写法不同性能差三个数量级：
 
-| 写法 | 191KB 流耗时 | 判定 |
-|:--|--:|:--:|
-| 逐 chunk `Buffer.concat` 累积 | 52.3 ms | ❌ 禁止（1100×） |
-| 全流缓冲成字符串后查找 | 0.447 ms | ❌ 禁止（内存线性增长） |
-| 每 chunk 新建 `Buffer.from(u8.buffer, …)` 视图 | 0.217 ms | ⚠️ 避免（5×） |
-| **预分配 `Uint8Array` + `TypedArray.set`** | **0.046 ms** | ✅ 唯一采纳 |
+| 写法                                           | 191KB 流耗时 |          判定           |
+| :--------------------------------------------- | -----------: | :---------------------: |
+| 逐 chunk `Buffer.concat` 累积                  |      52.3 ms |    ❌ 禁止（1100×）     |
+| 全流缓冲成字符串后查找                         |     0.447 ms | ❌ 禁止（内存线性增长） |
+| 每 chunk 新建 `Buffer.from(u8.buffer, …)` 视图 |     0.217 ms |      ⚠️ 避免（5×）      |
+| **预分配 `Uint8Array` + `TypedArray.set`**     | **0.046 ms** |       ✅ 唯一采纳       |
 
 **"加这个功能性能影响多大"的答案取决于评审能否卡住前两种写法。** 故须以性能回归测试固化上界（见 7.3），不依赖自觉。
 
@@ -321,11 +332,11 @@ export type UsageEntryV2 = {
   model: string;
   usage: TokenUsage;
   usageSource: "upstream" | "estimated" | "partial";
-  costUsd: number;                                     // 单位写进字段名
+  costUsd: number; // 单位写进字段名
   baselineModel: string | null;
   baselineCostUsd: number | null;
   baselineMethod: "same-usage-repricing" | "none";
-  savedUsd: number | null;                             // 不存比例：比例是派生量，存了必然漂移
+  savedUsd: number | null; // 不存比例：比例是派生量，存了必然漂移
   truncated?: boolean;
   latencyMs: number;
 };
@@ -340,25 +351,25 @@ export type UsageEntryV2 = {
 ```yaml
 accounting:
   # ── L0 分粒度开关（决策 6）──
-  enabled: false                               # 🔴 首版默认关闭（experimental），Phase 7.3 压测后再翻
-  captureNonStreaming: true                    # +0.1 µs  几乎无关闭理由
-  captureStreaming: true                       # +22 µs   性能出问题第一个关这个
-  persist: true                                # 落盘；关闭后仅保留响应头/内存态统计
+  enabled: false # 🔴 首版默认关闭（experimental），Phase 7.3 压测后再翻
+  captureNonStreaming: true # +0.1 µs  几乎无关闭理由
+  captureStreaming: true # +22 µs   性能出问题第一个关这个
+  persist: true # 落盘；关闭后仅保留响应头/内存态统计
 
   # ── L1 热切换（决策 6）──
-  hotReload: true                              # fs.watch(config.yaml)，仅热更新 accounting.* 子树
+  hotReload: true # fs.watch(config.yaml)，仅热更新 accounting.* 子树
 
   # ── L2 自动降级（决策 6）──
-  maxQueueLines: 10000                         # 队列上限，防磁盘故障时内存爆掉
-  degradeAfterOverflows: 3                     # 连续触顶 N 次 → persist 自动降级（单向，不自动恢复）
+  maxQueueLines: 10000 # 队列上限，防磁盘故障时内存爆掉
+  degradeAfterOverflows: 3 # 连续触顶 N 次 → persist 自动降级（单向，不自动恢复）
 
   # ── 语义与容量 ──
-  baseline: requested                          # requested | reference | off
-  referenceModel: anthropic/claude-opus-4.6    # baseline: reference 时生效
-  redactPrompts: false                         # 见第 10 节隐私提醒
-  tailWindowBytes: 4096                        # 流式 usage 嗅探窗口（决策 3）
-  flushLines: 64                               # 批量落盘阈值（决策 5）
-  flushIntervalMs: 200                         # 批量落盘超时
+  baseline: requested # requested | reference | off
+  referenceModel: anthropic/claude-opus-4.6 # baseline: reference 时生效
+  redactPrompts: false # 见第 10 节隐私提醒
+  tailWindowBytes: 4096 # 流式 usage 嗅探窗口（决策 3）
+  flushLines: 64 # 批量落盘阈值（决策 5）
+  flushIntervalMs: 200 # 批量落盘超时
 ```
 
 **开启后**实测代价：非流式 +0.0001 ms、流式 +0.022 ms、每连接 ~3 KB、落盘 ~0.014 ms/req（批量摊薄）。
@@ -441,12 +452,12 @@ accounting:
 
 无需新增 Phase，`ROADMAP.md` 已有位置：
 
-| ROADMAP 条目 | 本方案对应部分 |
-|:--|:--|
-| **5.6** 接入 `Logger` / `Stats` / `Report` | 方案主体（第 3-7 节） |
-| **6.2** `x-nexusrouter-*` 响应头完善（成本估算） | 记账层的顺带出口 |
-| **7.3** 负载测试与瓶颈优化 | 决策 5 的批量 flush 直接解除 2,959 req/s 天花板 |
-| **6.5 / 6.6** Dashboard 与控制台实时大屏 | 本方案的读侧出口，独立设计：[`2026-08-20-live-dashboard-design.md`](2026-08-20-live-dashboard-design.md)（含本方案未列出的**缺陷 11**：`stats.ts` 忽略 `NEXUSROUTER_LOG_DIR`） |
+| ROADMAP 条目                                     | 本方案对应部分                                                                                                                                                                 |
+| :----------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **5.6** 接入 `Logger` / `Stats` / `Report`       | 方案主体（第 3-7 节）                                                                                                                                                          |
+| **6.2** `x-nexusrouter-*` 响应头完善（成本估算） | 记账层的顺带出口                                                                                                                                                               |
+| **7.3** 负载测试与瓶颈优化                       | 决策 5 的批量 flush 直接解除 2,959 req/s 天花板                                                                                                                                |
+| **6.5 / 6.6** Dashboard 与控制台实时大屏         | 本方案的读侧出口，独立设计：[`2026-08-20-live-dashboard-design.md`](2026-08-20-live-dashboard-design.md)（含本方案未列出的**缺陷 11**：`stats.ts` 忽略 `NEXUSROUTER_LOG_DIR`） |
 
 ### 🔴 硬前置：Phase 3.3 未完成前不可施工
 
@@ -460,14 +471,14 @@ accounting:
 
 ### 建议施工切分
 
-| 步骤 | 范围 | 风险 | 依赖 3.3 |
-|:--|:--|:--|:--:|
-| **Step 0** | `src/accounting/ledger-writer.ts` 批量 flush，先接现有 `logRoutingDecision`（决策 5） | 低风险，且是**独立性能收益**（70×） | ❌ 否 |
-| Step 1 | `src/pricing/` + `src/accounting/` 纯函数模块及其测试 | 零风险，不碰主链，可独立验证 | ✅ 是 |
-| Step 2 | **开关骨架先行**：`accounting` 配置段 + Zod schema + `fs.watch` 热切换 + `/health` 暴露状态（决策 6） | 低风险；**必须排在 Step 3 之前**，否则接线后无法关闭 | ❌ 否 |
-| Step 3 | `src/adapter/` usage 捕获（4KB 环形窗）+ `server.ts` 接线 | 触及主链，需完整回归 + 8.4 性能门禁 | ✅ 是 |
-| Step 4 | `cli.ts` 补 `stats` / `report` 子命令（修缺陷 2） | 低风险 | ✅ 是 |
-| Step 5 | 清理 `selector.ts` 重复成本公式（修缺陷 9）、`stats.ts` 过期标签（修缺陷 7） | 低风险 | ✅ 是 |
+| 步骤       | 范围                                                                                                  | 风险                                                 | 依赖 3.3 |
+| :--------- | :---------------------------------------------------------------------------------------------------- | :--------------------------------------------------- | :------: |
+| **Step 0** | `src/accounting/ledger-writer.ts` 批量 flush，先接现有 `logRoutingDecision`（决策 5）                 | 低风险，且是**独立性能收益**（70×）                  |  ❌ 否   |
+| Step 1     | `src/pricing/` + `src/accounting/` 纯函数模块及其测试                                                 | 零风险，不碰主链，可独立验证                         |  ✅ 是   |
+| Step 2     | **开关骨架先行**：`accounting` 配置段 + Zod schema + `fs.watch` 热切换 + `/health` 暴露状态（决策 6） | 低风险；**必须排在 Step 3 之前**，否则接线后无法关闭 |  ❌ 否   |
+| Step 3     | `src/adapter/` usage 捕获（4KB 环形窗）+ `server.ts` 接线                                             | 触及主链，需完整回归 + 8.4 性能门禁                  |  ✅ 是   |
+| Step 4     | `cli.ts` 补 `stats` / `report` 子命令（修缺陷 2）                                                     | 低风险                                               |  ✅ 是   |
+| Step 5     | 清理 `selector.ts` 重复成本公式（修缺陷 9）、`stats.ts` 过期标签（修缺陷 7）                          | 低风险                                               |  ✅ 是   |
 
 **Step 2 必须先于 Step 3。** 先接线后补开关，等于在没有刹车的情况下先踩油门 —— 一旦 Step 3 上线后发现性能问题，唯一手段是回滚代码而非改配置。
 
@@ -489,24 +500,24 @@ accounting:
 
 ## 11. 对照：new-api 哪些该借、哪些不该借
 
-| new-api 机制 | 是否借鉴 | 理由 |
-|:--|:--:|:--|
-| 分档 token 计价（cache read/write 独立倍率） | ✅ 借 | 真实成本结构，不借则错一个数量级 |
-| `decimal` 精确计算避免浮点误差 | ⚠️ 部分 | 记账非结算，`number` 足够；仅在报表求和处注意累积误差 |
-| 冻结的 `BillingSnapshot`（价格快照） | ✅ 借思路 | 记账时快照当时单价，避免改配置后历史报表漂移 |
-| 饱和/钳制 + 审计记录（`QuotaClamp`） | ✅ 借思路 | 换成 `usageSource` / `truncated` / `baselineMethod` 三个诚实标记 |
-| 两阶段预扣 + 结算 + `defer` 退款 | ❌ 不借 | 无余额需保护，纯粹复杂度 |
-| Redis Lua 原子预留 | ❌ 不借 | 无并发超支风险 |
-| 双账本（Token + 资金来源） | ❌ 不借 | 不收钱，无账本概念 |
-| trust-quota 绕过 | ❌ 不借 | 同上 |
-| `billingexpr` 表达式 DSL | ❌ 不借 | 为多租户定价灵活性设计，NexusRouter 只需单一成本公式 |
+| new-api 机制                                 | 是否借鉴  | 理由                                                             |
+| :------------------------------------------- | :-------: | :--------------------------------------------------------------- |
+| 分档 token 计价（cache read/write 独立倍率） |   ✅ 借   | 真实成本结构，不借则错一个数量级                                 |
+| `decimal` 精确计算避免浮点误差               |  ⚠️ 部分  | 记账非结算，`number` 足够；仅在报表求和处注意累积误差            |
+| 冻结的 `BillingSnapshot`（价格快照）         | ✅ 借思路 | 记账时快照当时单价，避免改配置后历史报表漂移                     |
+| 饱和/钳制 + 审计记录（`QuotaClamp`）         | ✅ 借思路 | 换成 `usageSource` / `truncated` / `baselineMethod` 三个诚实标记 |
+| 两阶段预扣 + 结算 + `defer` 退款             |  ❌ 不借  | 无余额需保护，纯粹复杂度                                         |
+| Redis Lua 原子预留                           |  ❌ 不借  | 无并发超支风险                                                   |
+| 双账本（Token + 资金来源）                   |  ❌ 不借  | 不收钱，无账本概念                                               |
+| trust-quota 绕过                             |  ❌ 不借  | 同上                                                             |
+| `billingexpr` 表达式 DSL                     |  ❌ 不借  | 为多租户定价灵活性设计，NexusRouter 只需单一成本公式             |
 
 ---
 
 ## 附录：变更记录
 
-| 日期 | 变更 |
-|:--|:--|
-| 2026-08-19 | 初版：现状审计 + 三层架构 + 决策 1-4 + schema v2 |
-| 2026-08-19 | **性能实测后修订三处**：① 尾窗 8KB → 4KB；② 写法锁定 `Uint8Array` + `TypedArray.set`（实测差 1100×），并新增 8.4 性能回归门禁；③ **新增决策 5** —— 落盘必须批量 flush，初版的「每请求 ×2 次 `appendFile`」会把吞吐从 2,959 砍到 1,522 req/s。新增第 5 节性能实测基线、8.5 `LedgerWriter` 测试、Step 0 可独立先行 |
+| 日期       | 变更                                                                                                                                                                                                                                                                                                                                           |
+| :--------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-19 | 初版：现状审计 + 三层架构 + 决策 1-4 + schema v2                                                                                                                                                                                                                                                                                               |
+| 2026-08-19 | **性能实测后修订三处**：① 尾窗 8KB → 4KB；② 写法锁定 `Uint8Array` + `TypedArray.set`（实测差 1100×），并新增 8.4 性能回归门禁；③ **新增决策 5** —— 落盘必须批量 flush，初版的「每请求 ×2 次 `appendFile`」会把吞吐从 2,959 砍到 1,522 req/s。新增第 5 节性能实测基线、8.5 `LedgerWriter` 测试、Step 0 可独立先行                               |
 | 2026-08-19 | **新增决策 6：分层熔断开关**（L0 分粒度配置 / L1 `fs.watch` 热切换 / L2 队列深度自动降级 / L3 `/health` 可见性）。否决 SIGHUP（Windows 不支持）与 HTTP 管理端点（攻击面）。首版默认 `enabled: false` 按 experimental 交付。实测确认关闭后残留开销在噪声内，无需双循环体。新增 8.6 开关测试清单；施工切分插入 **Step 2 开关骨架，必须先于接线** |

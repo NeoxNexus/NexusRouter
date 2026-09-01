@@ -9,14 +9,14 @@
 
 ### 新增 `src/adapter/` 模块 (6 个文件)
 
-| 文件 | 职责 |
-|:-----|:-----|
-| `types.ts` | `UnifiedRequest`、`AgentHints`、`ClassifierWeights` 统一类型 |
-| `adapter.ts` | `ProtocolAdapter` 策略接口、Factory、路径检测器 |
-| `anthropic.ts` | `AnthropicAdapter`：Anthropic 格式 ↔ 统一格式，SSE 透传 |
-| `openai.ts` | `OpenAIAdapter`：OpenAI 格式 ↔ 统一格式 |
-| `profile.ts` | `AgentProfile` 插件注册表、动态加权融合、内置 claude-code/openclaw 配置 |
-| `index.ts` | 模块入口 re-export |
+| 文件           | 职责                                                                    |
+| :------------- | :---------------------------------------------------------------------- |
+| `types.ts`     | `UnifiedRequest`、`AgentHints`、`ClassifierWeights` 统一类型            |
+| `adapter.ts`   | `ProtocolAdapter` 策略接口、Factory、路径检测器                         |
+| `anthropic.ts` | `AnthropicAdapter`：Anthropic 格式 ↔ 统一格式，SSE 透传                 |
+| `openai.ts`    | `OpenAIAdapter`：OpenAI 格式 ↔ 统一格式                                 |
+| `profile.ts`   | `AgentProfile` 插件注册表、动态加权融合、内置 claude-code/openclaw 配置 |
+| `index.ts`     | 模块入口 re-export                                                      |
 
 ### 重构 `src/server.ts`
 
@@ -34,12 +34,12 @@
 
 ## Agent 接入方式
 
-| Agent | 配置 | 端点 |
-|:------|:-----|:-----|
-| Claude Code | `ANTHROPIC_BASE_URL=http://host:8402/anthropic` | `/anthropic/v1/messages` |
-| OpenClaw | `OPENAI_BASE_URL=http://host:8402/openclaw/v1` | `/openclaw/v1/chat/completions` |
-| 原有 OpenClaw | 无需改动 | `/v1/chat/completions` (兼容) |
-| 原有 Anthropic 客户端 | 无需改动 | `/v1/messages` (兼容) |
+| Agent                 | 配置                                            | 端点                            |
+| :-------------------- | :---------------------------------------------- | :------------------------------ |
+| Claude Code           | `ANTHROPIC_BASE_URL=http://host:8402/anthropic` | `/anthropic/v1/messages`        |
+| OpenClaw              | `OPENAI_BASE_URL=http://host:8402/openclaw/v1`  | `/openclaw/v1/chat/completions` |
+| 原有 OpenClaw         | 无需改动                                        | `/v1/chat/completions` (兼容)   |
+| 原有 Anthropic 客户端 | 无需改动                                        | `/v1/messages` (兼容)           |
 
 ---
 

@@ -14,7 +14,7 @@ function bytes(s: string): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-function makeAnthropicChunk(_index: number): Uint8Array {
+function makeAnthropicChunk(): Uint8Array {
   // Average ~180B/chunk, matching the design's measured stream morphology.
   return bytes(
     `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"${"x".repeat(120)}"}}\n\n`,
@@ -421,7 +421,7 @@ describe("TailWindow performance regression gate", () => {
     const chunks = 800;
     const start = performance.now();
     for (let i = 0; i < chunks; i++) {
-      sniffer.push(makeAnthropicChunk(i));
+      sniffer.push(makeAnthropicChunk());
     }
     sniffer.push(
       bytes(
@@ -440,7 +440,7 @@ describe("TailWindow performance regression gate", () => {
     const chunks = 8000;
     const start = performance.now();
     for (let i = 0; i < chunks; i++) {
-      sniffer.push(makeAnthropicChunk(i));
+      sniffer.push(makeAnthropicChunk());
     }
     sniffer.push(
       bytes(
@@ -456,11 +456,11 @@ describe("TailWindow performance regression gate", () => {
 
   it("uses constant memory regardless of stream size", () => {
     const small = createUsageSniffer("anthropic", 4096);
-    for (let i = 0; i < 100; i++) small.push(makeAnthropicChunk(i));
+    for (let i = 0; i < 100; i++) small.push(makeAnthropicChunk());
     small.finish();
 
     const large = createUsageSniffer("anthropic", 4096);
-    for (let i = 0; i < 10000; i++) large.push(makeAnthropicChunk(i));
+    for (let i = 0; i < 10000; i++) large.push(makeAnthropicChunk());
     large.finish();
 
     // 4KB window + sniffer object overhead; must not scale with stream length.

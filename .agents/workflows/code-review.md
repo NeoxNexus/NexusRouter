@@ -33,7 +33,7 @@ git show --stat HEAD
 # 内容结构：
 # - 🟢 优点
 # - 🔴 高优先级问题（必须在下一个 Phase 前修复）
-# - 🟡 中优先级问题（本 Phase 内处理）  
+# - 🟡 中优先级问题（本 Phase 内处理）
 # - 🟢 低优先级/建议项
 # - 汇总表格 + 下一步建议
 ```
@@ -43,6 +43,7 @@ git show --stat HEAD
 6. 运行全量测试确认修复后不影响现有功能
 
 // turbo
+
 ```bash
 npm run typecheck && npm test
 ```

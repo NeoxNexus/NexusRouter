@@ -135,14 +135,14 @@
 
 ## 3. 建议交付物矩阵
 
-| Phase | 主要交付物 |
-|:------|:-----------|
-| Phase 3 | 架构收口方案、文档统一、主链重构 |
-| Phase 4 | benchmark 数据集、runner、准确率报告 |
+| Phase   | 主要交付物                                    |
+| :------ | :-------------------------------------------- |
+| Phase 3 | 架构收口方案、文档统一、主链重构              |
+| Phase 4 | benchmark 数据集、runner、准确率报告          |
 | Phase 5 | middleware/pipeline 接线、缓存/会话/压缩/统计 |
-| Phase 6 | metrics、结构化日志、调试端点 |
-| Phase 7 | 压测报告、Docker、性能优化 |
-| Phase 8 | 发布文档、npm publish、release checklist |
+| Phase 6 | metrics、结构化日志、调试端点                 |
+| Phase 7 | 压测报告、Docker、性能优化                    |
+| Phase 8 | 发布文档、npm publish、release checklist      |
 
 ## 4. 执行注意事项
 

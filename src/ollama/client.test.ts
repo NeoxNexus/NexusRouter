@@ -130,14 +130,15 @@ describe("OllamaClient", () => {
 
     it("should throw timeout error when request exceeds timeout", async () => {
       // Mock fetch that rejects with AbortError after a delay
-      mockFetch.mockImplementation(() =>
-        new Promise((_, reject) => {
-          setTimeout(() => {
-            const error = new Error("Aborted");
-            error.name = "AbortError";
-            reject(error);
-          }, 50);
-        })
+      mockFetch.mockImplementation(
+        () =>
+          new Promise((_, reject) => {
+            setTimeout(() => {
+              const error = new Error("Aborted");
+              error.name = "AbortError";
+              reject(error);
+            }, 50);
+          }),
       );
 
       const client = new OllamaClient({ baseUrl: "http://localhost:11434", timeout: 10 }); // 10ms timeout

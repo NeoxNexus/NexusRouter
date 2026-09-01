@@ -301,8 +301,12 @@ export function formatEvalReport(report: EvalReport): string {
   const finalCorrect = report.finalCorrect;
   const classifierCorrect = report.classifierCorrect;
   lines.push(`Accuracy (labeled = ${report.labeled}):`);
-  lines.push(`  finalTier      === expectedTier: ${pct(report.finalAccuracy)} (${finalCorrect}/${report.labeled})`);
-  lines.push(`  classifierTier === expectedTier: ${pct(report.classifierAccuracy)} (${classifierCorrect}/${report.labeled})`);
+  lines.push(
+    `  finalTier      === expectedTier: ${pct(report.finalAccuracy)} (${finalCorrect}/${report.labeled})`,
+  );
+  lines.push(
+    `  classifierTier === expectedTier: ${pct(report.classifierAccuracy)} (${classifierCorrect}/${report.labeled})`,
+  );
   lines.push("");
 
   // Confusion matrix, rows = expected, columns = final. Only tiers that

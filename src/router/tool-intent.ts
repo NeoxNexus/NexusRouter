@@ -10,10 +10,7 @@
  * Ported from @blockrun/router-core (MIT) — the upstream project hit the same
  * problem with OpenClaw, which also ships a tool table on every request.
  */
-export function inferToolRequirement(
-  prompt: string,
-  toolChoice?: unknown,
-): boolean {
+export function inferToolRequirement(prompt: string, toolChoice?: unknown): boolean {
   // OpenAI-compatible clients can state this requirement directly. Treat that
   // protocol signal as authoritative instead of trying to infer it from prose.
   if (toolChoice === "none") return false;

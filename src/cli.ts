@@ -17,7 +17,12 @@
 
 import { startServer } from "./server.js";
 import { VERSION } from "./version.js";
-import { getDefaultConfigPath, ensureConfigExists, loadConfig, type Config } from "./config/loader.js";
+import {
+  getDefaultConfigPath,
+  ensureConfigExists,
+  loadConfig,
+  type Config,
+} from "./config/loader.js";
 import { flushLogs, flushLogsSync } from "./logger.js";
 import { getStats, formatStatsAscii } from "./stats.js";
 import { pathToFileURL } from "node:url";
@@ -68,7 +73,7 @@ Options:
   --json            Output stats/report as JSON instead of ASCII/text
 
 Commands:
-  doctor            AI-powered diagnostics
+  doctor            Diagnostics (not yet implemented)
   stats [days]      Show usage statistics (default: 7 days)
   report [days]     Show detailed usage report (default: 7 days)
   eval              Evaluate routing quality against a labeled routing log
@@ -322,8 +327,7 @@ async function main(): Promise<void> {
         );
       } else if (mode === "fixed") {
         console.log(
-          `✅ 已创建默认配置：${configPath}\n` +
-            `已检测到服务端固定 API Key，继续启动...`,
+          `✅ 已创建默认配置：${configPath}\n` + `已检测到服务端固定 API Key，继续启动...`,
         );
       } else {
         console.warn(

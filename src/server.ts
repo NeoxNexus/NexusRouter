@@ -327,8 +327,10 @@ async function handleUnified(
 
   // Latest real user text — shared by the classifier and the retry detector,
   // so it is computed even when this request is not auto-routed.
-  const { text: classificationText, ageTurns: classificationAgeTurns } =
-    extractClassificationText(profile, unified.messages);
+  const { text: classificationText, ageTurns: classificationAgeTurns } = extractClassificationText(
+    profile,
+    unified.messages,
+  );
 
   // Outcome signal: if this request looks like a retry of one logged in the
   // last 60s, append a companion row for the earlier entry (see the retry
@@ -886,7 +888,7 @@ export async function createServer(
     accounting.close();
   });
 
-  // Optional web dashboard (off by default; opt-in via router.dashboard).
+  // Optional web dashboard (on by default; disable via router.dashboard: false).
   registerDashboardRoutes(app, {
     enabled: config.router.dashboard,
     logDir: resolveLogDir(),

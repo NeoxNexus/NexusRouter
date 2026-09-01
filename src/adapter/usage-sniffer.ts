@@ -403,7 +403,8 @@ class AnthropicStreamSniffer implements UsageSniffer {
         try {
           const data = JSON.parse(match[1]) as Record<string, unknown>;
           const usage = (data.message as Record<string, unknown>)?.usage as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
           if (usage && typeof usage === "object" && hasPositiveUsage(usage)) {
             this.inputTokens = safeInt(usage.input_tokens);
           }

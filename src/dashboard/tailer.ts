@@ -118,7 +118,7 @@ export async function tail(state: TailerState): Promise<TailEvent> {
   }
 
   let handle: Awaited<ReturnType<typeof open>> | null = null;
-  let chunk = "";
+  let chunk: string;
   try {
     const info = await stat(state.currentFile);
     const size = info.size;

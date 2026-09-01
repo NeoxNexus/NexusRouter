@@ -54,9 +54,10 @@ describe("getStats — log directory resolution (defect 11)", () => {
   it("reads from NEXUSROUTER_LOG_DIR, the same dir the logger writes to", async () => {
     await writeFile(
       join(dir, "usage-2026-08-20.jsonl"),
-      [JSON.stringify(entryV2()), JSON.stringify(entryV2({ costUsd: 0.02, baselineCostUsd: 0.06 }))].join(
-        "\n",
-      ) + "\n",
+      [
+        JSON.stringify(entryV2()),
+        JSON.stringify(entryV2({ costUsd: 0.02, baselineCostUsd: 0.06 })),
+      ].join("\n") + "\n",
     );
     process.env.NEXUSROUTER_LOG_DIR = dir;
 
@@ -120,7 +121,10 @@ describe("getStats — v1 / v2 mix", () => {
   it("mixes legacy v1 entries with schema-v2 entries", async () => {
     await writeFile(
       join(dir, "usage-2026-08-20.jsonl"),
-      [JSON.stringify(entryV1({ cost: 0.01, baselineCost: 0.05 })), JSON.stringify(entryV2({ costUsd: 0.02, baselineCostUsd: 0.06 }))].join("\n") + "\n",
+      [
+        JSON.stringify(entryV1({ cost: 0.01, baselineCost: 0.05 })),
+        JSON.stringify(entryV2({ costUsd: 0.02, baselineCostUsd: 0.06 })),
+      ].join("\n") + "\n",
     );
     process.env.NEXUSROUTER_LOG_DIR = dir;
 

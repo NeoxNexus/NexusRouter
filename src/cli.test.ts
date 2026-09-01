@@ -1,11 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import {
-  parseArgs,
-  printHelp,
-  classifyKeyMode,
-  isMainModule,
-  resolveListenPort,
-} from "./cli.js";
+import { parseArgs, printHelp, classifyKeyMode, isMainModule, resolveListenPort } from "./cli.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

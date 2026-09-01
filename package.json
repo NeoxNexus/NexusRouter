@@ -1,7 +1,7 @@
 {
   "name": "nexusrouter",
   "version": "0.12.7",
-  "description": "Smart LLM router — intelligent model selection with 15-dimension scoring. 41+ models, zero-cost routing in <1ms.",
+  "description": "Smart LLM router — local hybrid classifier (rules + heuristics + optional AI) routes each request to the right model tier. 41+ models priced, zero-cost routing in <1ms.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,17 +34,7 @@
     "lint": "eslint src/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:resilience:errors": "tsx test/resilience-errors.ts",
-    "load-test": "tsx scripts/load-test.ts",
-    "test:resilience:stability": "DURATION_MINUTES=5 tsx test/resilience-stability.ts",
-    "test:resilience:stability:full": "DURATION_MINUTES=240 tsx test/resilience-stability.ts",
-    "test:resilience:lifecycle": "tsx test/resilience-lifecycle.ts",
-    "test:resilience:quick": "npm run test:resilience:errors && npm run test:resilience:lifecycle",
-    "test:resilience:full": "npm run test:resilience:errors && npm run test:resilience:lifecycle && npm run test:resilience:stability:full",
-    "test:e2e:tool-ids": "npm run build && tsx test/e2e-tool-id-sanitization.ts",
-    "test:docker:install": "bash test/run-docker-test.sh",
-    "test:docker:edge-cases": "bash test/docker/run-edge-cases.sh",
-    "test:docker:integration": "docker compose -f test/integration/docker-compose.yml up --build --abort-on-container-exit --exit-code-from integration"
+    "load-test": "tsx scripts/load-test.ts"
   },
   "keywords": [
     "llm",

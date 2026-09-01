@@ -17,34 +17,34 @@ import type { UnifiedRequest, AgentHints, ClassifierWeights, ProtocolType } from
 // ─── Agent Profile Interface ───
 
 export interface AgentProfile {
-    /** Unique agent name */
-    name: string;
-    /** Protocol this agent speaks */
-    protocolType: ProtocolType;
-    /**
-     * Extract agent-specific hints from the request.
-     * These hints get passed alongside the classifier result
-     * to influence the final routing decision.
-     */
-    extractHints?(request: UnifiedRequest): AgentHints;
-    /**
-     * Compute dynamic weights based on the extracted hints.
-     * If not provided, defaults to { hintWeight: 0, classifierWeight: 1 }.
-     */
-    computeWeights?(hints: AgentHints): ClassifierWeights;
-    /**
-     * Strip host-injected boilerplate before the text reaches the classifier.
-     * Only the classifier's input is affected — the body forwarded upstream
-     * keeps the original text. If not provided, text passes through unchanged.
-     */
-    sanitizeForClassification?(text: string): string;
+  /** Unique agent name */
+  name: string;
+  /** Protocol this agent speaks */
+  protocolType: ProtocolType;
+  /**
+   * Extract agent-specific hints from the request.
+   * These hints get passed alongside the classifier result
+   * to influence the final routing decision.
+   */
+  extractHints?(request: UnifiedRequest): AgentHints;
+  /**
+   * Compute dynamic weights based on the extracted hints.
+   * If not provided, defaults to { hintWeight: 0, classifierWeight: 1 }.
+   */
+  computeWeights?(hints: AgentHints): ClassifierWeights;
+  /**
+   * Strip host-injected boilerplate before the text reaches the classifier.
+   * Only the classifier's input is affected — the body forwarded upstream
+   * keeps the original text. If not provided, text passes through unchanged.
+   */
+  sanitizeForClassification?(text: string): string;
 }
 
 // ─── Default Weights ───
 
 const DEFAULT_WEIGHTS: ClassifierWeights = {
-    hintWeight: 0,
-    classifierWeight: 1,
+  hintWeight: 0,
+  classifierWeight: 1,
 };
 
 // ─── Agent Registry (Plugin Pattern) ───
@@ -52,15 +52,15 @@ const DEFAULT_WEIGHTS: ClassifierWeights = {
 const profileRegistry = new Map<string, AgentProfile>();
 
 export function registerProfile(profile: AgentProfile): void {
-    profileRegistry.set(profile.name, profile);
+  profileRegistry.set(profile.name, profile);
 }
 
 export function getProfile(name: string): AgentProfile | undefined {
-    return profileRegistry.get(name);
+  return profileRegistry.get(name);
 }
 
 export function getAllProfiles(): AgentProfile[] {
-    return Array.from(profileRegistry.values());
+  return Array.from(profileRegistry.values());
 }
 
 // ─── Built-in Profiles ───
@@ -74,41 +74,41 @@ export function getAllProfiles(): AgentProfile[] {
  * - Default sonnet = no signal (let classifier decide)
  */
 export const claudeCodeProfile: AgentProfile = {
-    name: "claude-code",
-    protocolType: "anthropic",
+  name: "claude-code",
+  protocolType: "anthropic",
 
-    extractHints(request: UnifiedRequest): AgentHints {
-        const model = request.model?.toLowerCase() || "";
-        const rawBody = request.rawBody as Record<string, unknown> | undefined;
+  extractHints(request: UnifiedRequest): AgentHints {
+    const model = request.model?.toLowerCase() || "";
+    const rawBody = request.rawBody as Record<string, unknown> | undefined;
 
-        return {
-            isBackgroundTask: model.includes("haiku"),
-            preferThinking: !!rawBody?.thinking,
-        };
-    },
+    return {
+      isBackgroundTask: model.includes("haiku"),
+      preferThinking: !!rawBody?.thinking,
+    };
+  },
 
-    computeWeights(hints: AgentHints): ClassifierWeights {
-        // Background task (haiku) — high confidence hint
-        if (hints.isBackgroundTask) {
-            return { hintWeight: 0.8, classifierWeight: 0.2 };
-        }
-        // Thinking mode — medium confidence
-        if (hints.preferThinking) {
-            return { hintWeight: 0.5, classifierWeight: 0.5 };
-        }
-        // Default (sonnet) — classifier is king
-        return { hintWeight: 0.1, classifierWeight: 0.9 };
-    },
+  computeWeights(hints: AgentHints): ClassifierWeights {
+    // Background task (haiku) — high confidence hint
+    if (hints.isBackgroundTask) {
+      return { hintWeight: 0.8, classifierWeight: 0.2 };
+    }
+    // Thinking mode — medium confidence
+    if (hints.preferThinking) {
+      return { hintWeight: 0.5, classifierWeight: 0.5 };
+    }
+    // Default (sonnet) — classifier is king
+    return { hintWeight: 0.1, classifierWeight: 0.9 };
+  },
 
-    sanitizeForClassification(text: string): string {
-        // Claude Code hooks inject <system-reminder> blocks into the user
-        // turn (skill lists, hook output, permission instructions). They are
-        // host boilerplate, not user intent — but they dominate keyword
-        // matching (e.g. the skill list always contains "improve"). Strip
-        // only fully-closed blocks; an unterminated tag is left untouched
-        // rather than risking eating the user's own text.
-        return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "").trim();
-    },
+  sanitizeForClassification(text: string): string {
+    // Claude Code hooks inject <system-reminder> blocks into the user
+    // turn (skill lists, hook output, permission instructions). They are
+    // host boilerplate, not user intent — but they dominate keyword
+    // matching (e.g. the skill list always contains "improve"). Strip
+    // only fully-closed blocks; an unterminated tag is left untouched
+    // rather than risking eating the user's own text.
+    return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "").trim();
+  },
 };
 
 /**
@@ -118,17 +118,17 @@ export const claudeCodeProfile: AgentProfile = {
  * agent-specific signals. Pure classifier routing.
  */
 export const openClawProfile: AgentProfile = {
-    name: "openclaw",
-    protocolType: "openai",
-    // No extractHints — defaults to { hintWeight: 0, classifierWeight: 1 }
+  name: "openclaw",
+  protocolType: "openai",
+  // No extractHints — defaults to { hintWeight: 0, classifierWeight: 1 }
 };
 
 /**
  * Generic OpenAI Agent Profile (Cursor, etc.)
  */
 export const genericOpenAIProfile: AgentProfile = {
-    name: "openai",
-    protocolType: "openai",
+  name: "openai",
+  protocolType: "openai",
 };
 
 // ─── Resolve Profile from Agent Name ───
@@ -138,26 +138,26 @@ export const genericOpenAIProfile: AgentProfile = {
  * Falls back to protocol-based defaults.
  */
 const agentPrefixMap: Record<string, string> = {
-    anthropic: "claude-code",
-    openclaw: "openclaw",
-    openai: "openai",
-    cursor: "openai", // Cursor uses OpenAI protocol
+  anthropic: "claude-code",
+  openclaw: "openclaw",
+  openai: "openai",
+  cursor: "openai", // Cursor uses OpenAI protocol
 };
 
 export function resolveProfile(
-    agentPrefix: string | null,
-    protocol: "anthropic" | "openai",
+  agentPrefix: string | null,
+  protocol: "anthropic" | "openai",
 ): AgentProfile {
-    if (agentPrefix) {
-        const profileName = agentPrefixMap[agentPrefix];
-        if (profileName) {
-            const profile = getProfile(profileName);
-            if (profile) return profile;
-        }
+  if (agentPrefix) {
+    const profileName = agentPrefixMap[agentPrefix];
+    if (profileName) {
+      const profile = getProfile(profileName);
+      if (profile) return profile;
     }
-    // Fallback: protocol-based defaults
-    if (protocol === "anthropic") return getProfile("claude-code") || claudeCodeProfile;
-    return getProfile("openclaw") || openClawProfile;
+  }
+  // Fallback: protocol-based defaults
+  if (protocol === "anthropic") return getProfile("claude-code") || claudeCodeProfile;
+  return getProfile("openclaw") || openClawProfile;
 }
 
 /**
@@ -165,12 +165,12 @@ export function resolveProfile(
  * Safely handles missing methods with defaults.
  */
 export function getHintsAndWeights(
-    profile: AgentProfile,
-    request: UnifiedRequest,
+  profile: AgentProfile,
+  request: UnifiedRequest,
 ): { hints: AgentHints; weights: ClassifierWeights } {
-    const hints = profile.extractHints?.(request) ?? {};
-    const weights = profile.computeWeights?.(hints) ?? DEFAULT_WEIGHTS;
-    return { hints, weights };
+  const hints = profile.extractHints?.(request) ?? {};
+  const weights = profile.computeWeights?.(hints) ?? DEFAULT_WEIGHTS;
+  return { hints, weights };
 }
 
 /**
@@ -187,7 +187,7 @@ export function getHintsAndWeights(
  * upstream always keeps the original text, byte for byte.
  */
 export function sanitizeForClassification(profile: AgentProfile, text: string): string {
-    return profile.sanitizeForClassification?.(text) ?? text;
+  return profile.sanitizeForClassification?.(text) ?? text;
 }
 
 // ─── Auto-register built-in profiles ───

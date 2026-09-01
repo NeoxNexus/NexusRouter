@@ -27,7 +27,11 @@ describe("aggregator", () => {
 
   it("accumulates totals and tier/model breakdowns", () => {
     let agg = emptyAggregates();
-    agg = updateAggregates(agg, [entry(), entry({ tier: "SIMPLE", model: "gpt-4o-mini", cost: 0.002 })], 0);
+    agg = updateAggregates(
+      agg,
+      [entry(), entry({ tier: "SIMPLE", model: "gpt-4o-mini", cost: 0.002 })],
+      0,
+    );
 
     expect(agg.totalRequests).toBe(2);
     expect(agg.totalCost).toBeCloseTo(0.012, 10);
@@ -38,12 +42,16 @@ describe("aggregator", () => {
 
   it("separates upstream and estimated counts", () => {
     let agg = emptyAggregates();
-    agg = updateAggregates(agg, [
-      entry({ usageSource: "upstream" }),
-      entry({ usageSource: "upstream" }),
-      entry({ usageSource: "estimated" }),
-      entry({ usageSource: "partial" }),
-    ], 0);
+    agg = updateAggregates(
+      agg,
+      [
+        entry({ usageSource: "upstream" }),
+        entry({ usageSource: "upstream" }),
+        entry({ usageSource: "estimated" }),
+        entry({ usageSource: "partial" }),
+      ],
+      0,
+    );
 
     expect(agg.upstreamRequests).toBe(2);
     expect(agg.estimatedRequests).toBe(1);
@@ -52,7 +60,11 @@ describe("aggregator", () => {
 
   it("counts truncated requests", () => {
     let agg = emptyAggregates();
-    agg = updateAggregates(agg, [entry({ truncated: true }), entry({ truncated: true }), entry()], 0);
+    agg = updateAggregates(
+      agg,
+      [entry({ truncated: true }), entry({ truncated: true }), entry()],
+      0,
+    );
     expect(agg.truncatedRequests).toBe(2);
   });
 

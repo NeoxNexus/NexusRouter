@@ -1006,7 +1006,8 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
       "تحقق",
     ],
 
-    // Dimension weights (sum to 1.0)
+    // Dimension weights (relative, not normalized — currently sum to 0.94
+    // after simpleIndicators was cut from 0.12 to 0.02 for agenticTask)
     dimensionWeights: {
       tokenCount: 0.08,
       codePresence: 0.15,

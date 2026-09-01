@@ -307,7 +307,13 @@ describe("formatEvalReport", () => {
 
   it("says so when there is nothing labeled", () => {
     const text = formatEvalReport(
-      computeEvalReport({ file: "x", samples: [], totalLines: 1, skippedMissingLabel: 1, skippedInvalid: 0 }),
+      computeEvalReport({
+        file: "x",
+        samples: [],
+        totalLines: 1,
+        skippedMissingLabel: 1,
+        skippedInvalid: 0,
+      }),
     );
     expect(text).toContain("No labeled samples");
   });

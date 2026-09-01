@@ -133,7 +133,7 @@ export function estimateTokenCount(text: string | undefined, model?: string): nu
   let count = 0;
   let current: WordType = "none";
 
-  for (let i = 0; i < text.length;) {
+  for (let i = 0; i < text.length; ) {
     const code = text.codePointAt(i) ?? 0;
     const charLen = code > 0xffff ? 2 : 1;
 

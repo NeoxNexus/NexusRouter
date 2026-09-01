@@ -53,21 +53,21 @@ npm run typecheck         # TypeScript 类型检查
 
 ### 关键模块
 
-| 模块        | 位置                  | 职责                                                   |
-| ----------- | --------------------- | ------------------------------------------------------ |
-| Server      | `src/server.ts`       | Fastify HTTP 服务器，处理 OpenAI 兼容的 /v1/chat/completions |
-| Classifier  | `src/classifier/`     | 混合分类器 (规则 + 启发式 + Ollama)                    |
-| Router      | `src/router/`         | Tier 选择器 (SIMPLE/MEDIUM/COMPLEX/REASONING)           |
-| Config      | `src/config/`         | YAML 配置加载 + Zod 验证                               |
-| Ollama      | `src/ollama/`         | 本地 LLM 客户端，用于 AI 分类                           |
+| 模块       | 位置              | 职责                                                         |
+| ---------- | ----------------- | ------------------------------------------------------------ |
+| Server     | `src/server.ts`   | Fastify HTTP 服务器，处理 OpenAI 兼容的 /v1/chat/completions |
+| Classifier | `src/classifier/` | 混合分类器 (规则 + 启发式 + Ollama)                          |
+| Router     | `src/router/`     | Tier 选择器 (SIMPLE/MEDIUM/COMPLEX/REASONING)                |
+| Config     | `src/config/`     | YAML 配置加载 + Zod 验证                                     |
+| Ollama     | `src/ollama/`     | 本地 LLM 客户端，用于 AI 分类                                |
 
 ### 三层分类器
 
-| 层级 | 延迟   | 描述                                           |
-|------|--------|-----------------------------------------------|
-| 规则 | <0.1ms | 问候语、感谢语、关键词匹配                      |
-| 启发式 | <2ms  | 14 维文本特征评分 (代码模式、对话长度等)        |
-| AI (Ollama) | <10ms | 本地 LLM 分类 (可选)                         |
+| 层级        | 延迟   | 描述                                     |
+| ----------- | ------ | ---------------------------------------- |
+| 规则        | <0.1ms | 问候语、感谢语、关键词匹配               |
+| 启发式      | <2ms   | 14 维文本特征评分 (代码模式、对话长度等) |
+| AI (Ollama) | <10ms  | 本地 LLM 分类 (可选)                     |
 
 ### 路由层级 (Tiers)
 
@@ -123,12 +123,12 @@ ollama:
 
 ### 环境变量
 
-| 变量 | 默认值 | 描述 |
-|------|--------|------|
-| `NEXUSROUTER_PORT` | 8402 | 服务端口 |
-| `OPENAI_API_KEY` | - | OpenAI API 密钥 |
-| `ANTHROPIC_API_KEY` | - | Anthropic API 密钥 |
-| `GOOGLE_API_KEY` | - | Google API 密钥 |
+| 变量                | 默认值 | 描述               |
+| ------------------- | ------ | ------------------ |
+| `NEXUSROUTER_PORT`  | 8402   | 服务端口           |
+| `OPENAI_API_KEY`    | -      | OpenAI API 密钥    |
+| `ANTHROPIC_API_KEY` | -      | Anthropic API 密钥 |
+| `GOOGLE_API_KEY`    | -      | Google API 密钥    |
 
 ## 开发注意事项
 

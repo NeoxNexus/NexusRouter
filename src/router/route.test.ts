@@ -81,12 +81,7 @@ describe("route - agentic mode detection", () => {
     const options = createRouterOptions();
 
     // 包含代理关键词的请求
-    const decision = route(
-      "请帮我分析这个代码库并找出潜在的安全问题",
-      undefined,
-      1000,
-      options,
-    );
+    const decision = route("请帮我分析这个代码库并找出潜在的安全问题", undefined, 1000, options);
 
     expect(decision.tier).toBeDefined();
   });
@@ -187,12 +182,7 @@ describe("route - reasoning detection", () => {
   it("should handle calculation requests", () => {
     const options = createRouterOptions();
 
-    const decision = route(
-      "Calculate the derivative",
-      undefined,
-      1000,
-      options,
-    );
+    const decision = route("Calculate the derivative", undefined, 1000, options);
 
     // 当前实现可能无法检测到所有计算请求
     // 这是一个已知的边界情况

@@ -24,7 +24,9 @@ import { VERSION } from "./version.js";
 // documented library API did not exist. Additive, so no consumer breaks.
 export { startServer, createServer };
 
-// Re-export router types
+// Re-export router types and the 15-dimension scoring router. Library API
+// only: the built-in server classifies with HybridClassifier (rules +
+// heuristics + optional AI layer), not with route().
 export type { RoutingDecision, RoutingConfig, Tier } from "./router/index.js";
 export {
   route,
@@ -54,19 +56,21 @@ export type {
 // Re-export Ollama client
 export { OllamaClient };
 
-// Re-export session
+// Re-export session. Library API only: the built-in server pipeline does not
+// use SessionStore — every request is classified independently.
 export { SessionStore, getSessionId, deriveSessionId, hashRequestContent } from "./session.js";
 export type { SessionEntry, SessionConfig } from "./session.js";
 
-// Re-export dedup
+// Re-export dedup. Library API only: not wired into the server pipeline.
 export { RequestDeduplicator } from "./dedup.js";
 export type { CachedResponse } from "./dedup.js";
 
-// Re-export response cache
+// Re-export response cache. Library API only: not wired into the server pipeline.
 export { ResponseCache } from "./response-cache.js";
 export type { CachedLLMResponse, ResponseCacheConfig } from "./response-cache.js";
 
-// Re-export retry
+// Re-export retry. Library API only: adapter.forward uses its own timeout /
+// error mapping, and server-side "retry" is tier fallback, not fetchWithRetry.
 export { fetchWithRetry, isRetryable, DEFAULT_RETRY_CONFIG } from "./retry.js";
 export type { RetryConfig } from "./retry.js";
 
@@ -109,7 +113,8 @@ export type {
   BaselineResult,
 } from "./accounting/baseline.js";
 
-// Re-export errors
+// Re-export errors. Library API only: the server pipeline maps upstream
+// failures inline (502/504) rather than throwing these classes.
 export {
   ConfigurationError,
   ProviderError,

@@ -7,9 +7,13 @@
  *
  * Features:
  * - TTL-based expiration (default 10 minutes)
- * - LRU eviction when cache is full
+ * - Eviction when cache is full: expired entries first, then soonest-to-expire
+ *   (not LRU — `get()` does not refresh an entry's eviction priority)
  * - Size limits per item (1MB max)
  * - Heap-based expiration tracking for efficient pruning
+ *
+ * Note: exported as a library API only — the built-in server pipeline
+ * (src/server.ts) does not use this cache.
  */
 
 import { createHash } from "node:crypto";

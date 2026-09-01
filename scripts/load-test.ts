@@ -70,7 +70,9 @@ async function main() {
   const routerPort = Math.max(0, parseInt(args.port || "0", 10));
   const accounting = args.accounting === "true";
 
-  console.log(`Starting load test: ${(durationMs / 1000).toFixed(1)}s, ${connections} connections, accounting=${accounting ? "ON" : "OFF"}`);
+  console.log(
+    `Starting load test: ${(durationMs / 1000).toFixed(1)}s, ${connections} connections, accounting=${accounting ? "ON" : "OFF"}`,
+  );
 
   const result = await runLoadTest({
     durationMs,

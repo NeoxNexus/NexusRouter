@@ -119,7 +119,10 @@ export function updateAggregates(
     }
 
     const tier = e.tier || "UNKNOWN";
-    byTier[tier] = { count: (byTier[tier]?.count || 0) + 1, cost: (byTier[tier]?.cost || 0) + cost };
+    byTier[tier] = {
+      count: (byTier[tier]?.count || 0) + 1,
+      cost: (byTier[tier]?.cost || 0) + cost,
+    };
 
     const model = e.model || "unknown";
     byModel[model] = {

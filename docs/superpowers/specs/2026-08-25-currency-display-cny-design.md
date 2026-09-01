@@ -13,15 +13,15 @@
 
 ## 改动范围
 
-| 文件 | 改动点 |
-|---|---|
-| `src/dashboard/web.ts` | 大屏 hero 省钱金额、基线成本、实际成本、最近请求表格成本列、底部注释 |
-| `src/stats.ts` | `nexusrouter stats` ASCII 报表中的金额行 |
-| `src/report.ts` | `nexusrouter report` 文本/Markdown 报表 |
-| `src/cli.ts` | `stats` / `report` 命令行输出中的金额行 |
-| `src/config/default-config.ts` | 注释中 "USD per 1M tokens" 改为通用 "每 1M tokens 货币单位" |
-| `src/pricing/price-book.ts` | 注释中 USD 描述改为通用货币单位 |
-| 相关测试文件 | 更新对 `$` 符号的断言 |
+| 文件                           | 改动点                                                               |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `src/dashboard/web.ts`         | 大屏 hero 省钱金额、基线成本、实际成本、最近请求表格成本列、底部注释 |
+| `src/stats.ts`                 | `nexusrouter stats` ASCII 报表中的金额行                             |
+| `src/report.ts`                | `nexusrouter report` 文本/Markdown 报表                              |
+| `src/cli.ts`                   | `stats` / `report` 命令行输出中的金额行                              |
+| `src/config/default-config.ts` | 注释中 "USD per 1M tokens" 改为通用 "每 1M tokens 货币单位"          |
+| `src/pricing/price-book.ts`    | 注释中 USD 描述改为通用货币单位                                      |
+| 相关测试文件                   | 更新对 `$` 符号的断言                                                |
 
 ## 明确不做
 
