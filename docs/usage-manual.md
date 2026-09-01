@@ -193,9 +193,9 @@ ollama:
 `apiKey` 等字符串字段支持三种格式：
 
 ```yaml
-apiKey: ${OPENAI_API_KEY}              # 标准格式，未设置则启动报错
-apiKey: ${OPENAI_API_KEY:-fallback}    # 带默认值
-apiKey: $OPENAI_API_KEY                # 简单格式
+apiKey: ${OPENAI_API_KEY} # 标准格式，未设置则启动报错
+apiKey: ${OPENAI_API_KEY:-fallback} # 带默认值
+apiKey: $OPENAI_API_KEY # 简单格式
 ```
 
 ### 5.3 provider 的 baseUrl
@@ -415,7 +415,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-<自己的 new-api 令牌>"
 - [ ] tiers 模型名与 new-api 平台开通的模型名**逐一核对**
 - [ ] HTTPS 反代就绪，`proxy_buffering off`（SSE）
 - [ ] 防火墙只放行 443，8402 仅监听本机回环给反代用
-- [ ] 先 5~10 人试点 1~2 周，观察 tier 分布和误判反馈，再全量推广
+- [ ] 先 5~~10 人试点 1~~2 周，观察 tier 分布和误判反馈，再全量推广
 
 ## 9. 观测与调试
 

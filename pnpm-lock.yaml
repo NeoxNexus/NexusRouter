@@ -26,10 +26,10 @@ importers:
         version: 10.8.1(jiti@2.7.0)
       openclaw:
         specifier: latest
-        version: 2026.7.1-2
+        version: 2026.7.1
       prettier:
-        specifier: ^3.8.1
-        version: 3.9.6
+        specifier: 3.8.1
+        version: 3.8.1
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.26)(tsx@4.23.12)(typescript@5.9.3)(yaml@2.9.0)
@@ -583,8 +583,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@openclaw/ai@2026.7.1-2':
-    resolution: {integrity: sha512-st+NH0cxlQqdbEur//yYqM7WlYBjeEBnop3cztJTSCONKjv6LNoGguI9cH65asZG94FdM/39z857isRGPnZvEw==}
+  '@openclaw/ai@2026.7.1':
+    resolution: {integrity: sha512-FsKy5DXSHf4qyN8Huoz/10HZRgoEwLF4uk8UWaCafaIler+q5Fsl51HcrIqIrEe0S38OT7LOaxnR++MOshAlmw==}
     engines: {node: '>=22.19.0'}
 
   '@openclaw/fs-safe@0.4.1':
@@ -1997,8 +1997,8 @@ packages:
       zod:
         optional: true
 
-  openclaw@2026.7.1-2:
-    resolution: {integrity: sha512-ycF3yPcbjN6bUPeaUx6Mh6vze1hQWoD3CT/wWcmD7a8xaHHHRUaAlaq+lFxMHf1ssEgODVAwjlzYqp2twkYZ7g==}
+  openclaw@2026.7.1:
+    resolution: {integrity: sha512-ge/Xss99CHAjPL/ikmH/UFoiOrjcxDB4sW3y9mhyCD+dYW3wzV7TKbAVdkrXFgAG2d2BjpJofP97zUZ+umxo8g==}
     engines: {node: '>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0'}
     hasBin: true
 
@@ -2121,8 +2121,8 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
-  prettier@3.9.6:
-    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
+  prettier@3.8.1:
+    resolution: {integrity: sha512-UOnG6LftzbdaHZcKoPFtOcCKztrQ57WkHDeRD9t/PTQtmT0NHSeWWepj6pS0z/N7+08BHFDQVUrfmfMRcZwbMg==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -3138,7 +3138,7 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@openclaw/ai@2026.7.1-2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
+  '@openclaw/ai@2026.7.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.109.1(zod@4.4.3)
       '@google/genai': 2.10.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
@@ -4476,7 +4476,7 @@ snapshots:
       ws: 8.21.0
       zod: 4.4.3
 
-  openclaw@2026.7.1-2:
+  openclaw@2026.7.1:
     dependencies:
       '@agentclientprotocol/sdk': 1.1.0(zod@4.4.3)
       '@anthropic-ai/sdk': 0.109.1(zod@4.4.3)
@@ -4491,7 +4491,7 @@ snapshots:
       '@mistralai/mistralai': 2.4.0
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
       '@mozilla/readability': 0.6.0
-      '@openclaw/ai': 2026.7.1-2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@openclaw/ai': 2026.7.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@openclaw/fs-safe': 0.4.1
       '@openclaw/proxyline': 0.3.3(undici@8.5.0)
       '@silvia-odwyer/photon-node': 0.3.4
@@ -4655,7 +4655,7 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
-  prettier@3.9.6: {}
+  prettier@3.8.1: {}
 
   process-nextick-args@2.0.1: {}
 

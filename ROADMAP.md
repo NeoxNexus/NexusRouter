@@ -6,12 +6,13 @@
 > Phase 规划依据：`docs/plans/2026-03-08-phase-priority-plan.md`
 > 2026-08-21 分类器设计评审：`docs/reviews/2026-08-21-classifier-design-review.md`（登记 D-002，修订 Phase 3.3/3.9 与 Phase 4 全部任务）
 > 2026-08-27 状态对齐（对 `main` @ `6400566`）：测试基线 **754/754**（修复 D-004 后全绿）；默认 `config.yaml` 四档已对齐价格注册表（`d63dba5`），D-001 / 3.3 / 4.1 / 5.6 中「四档 opus 未注册」的旧表述见各节更新；OpenAI 流式已支持自动注入 `stream_options.include_usage`（`01eeabf`，推翻 5.6.3 旧红线）；金额显示层统一 ¥（`65d4887`）。
+> 2026-09-01 校准（对工作区**未提交**改动，版本 0.12.7）：一轮死代码清理删除了 `src/compression/`（~1170 行，从未接线）、`src/journal.ts`、`src/report.ts`、`src/updater.ts`、`src/router/llm-classifier.ts` 及 ClawRouter 时代的 test/ 残留（solana/wallet/x402、integration、docker）与失效 npm scripts；README / package.json / `src/index.ts` 已把 15 维评分器与 `SessionStore` / `RequestDeduplicator` / `ResponseCache` / `fetchWithRetry` 显式标注为**仅库 API、未接入服务管线**；CHANGELOG 已重写至 v0.12.7（含 0.12.x 全线，品牌已修正）；CI 改为跑全量单测。实测基线 `npm test` **742/742**（36 文件，旧文 754/761 均过时）、typecheck / lint 全绿。本文件各节状态据此重校准：3.3 / 3.7 / 3.10 视为已决，5.2–5.5 重定性，详见各节「2026-09-01 校准」注记。
 
 ## 整体 Roadmap
 
 ```mermaid
 gantt
-    title NexusRouter 迭代 Roadmap (2026)
+    title NexusRouter 迭代 Roadmap (2026，2026-09-01 按真实进度校准)
     dateFormat YYYY-MM-DD
     axisFormat %m/%d
 
@@ -22,35 +23,36 @@ gantt
     统一代理架构 & 适配器层  :done, p2, 2026-03-05, 2026-03-05
 
     section Phase 3 — 架构收口与文档对齐
-    审阅基线固化             :p3a, 2026-03-08, 1d
-    主链收口设计             :p3b, after p3a, 3d
-    文档与品牌统一           :p3c, after p3b, 2d
-    部署基线固化             :p3d, after p3c, 1d
+    审阅基线固化             :done, p3a, 2026-03-08, 1d
+    文档与品牌统一 (3.4/3.5)  :done, p3c, 2026-08-18, 2026-08-21
+    部署基线固化 (3.8)        :done, p3d, 2026-08-20, 1d
+    默认配置路径 (3.7)        :done, p3e, 2026-08-25, 1d
+    主链归位决策 (3.3)        :done, p3b, 2026-09-01, 1d
+    仓库整洁 (3.10)          :done, p3f, 2026-09-01, 1d
+    文档表述收尾 (3.9)        :p3g, after p3f, 1d
 
     section Phase 4 — Benchmark 与正确性
-    档位语义 + 回归集         :p4a, after p3c, 2d
-    D-002 决策结构修复        :p4b, after p4a, 2d
-    标注 + 准确率评测调优     :p4c, after p4b, 3d
+    档位语义 + 回归集 (4.1/4.2) :done, p4a, 2026-08-21, 2d
+    D-002 决策结构修复 (4.3)   :done, p4b, 2026-08-21, 1d
+    真实流量采集分析 (4.0)     :done, p4c, 2026-08-25, 2026-08-27
+    D-005 语义定案+标注评测 (4.4-4.6) :p4d, after p4c, 5d
 
     section Phase 5 — 增强能力接线
-    缓存/去重/会话接线       :p5a, after p4c, 4d
-    压缩/日志/统计接线       :p5b, after p5a, 3d
-    集成测试补齐             :p5c, after p5b, 2d
+    省钱记账体系 (5.6)        :done, p5a, 2026-08-19, 2026-08-26
+    库 API 边界决策 (5.2-5.5)  :done, p5b, 2026-09-01, 1d
+    集成测试补齐 (5.7)        :p5c, after p5b, 2d
 
     section Phase 6 — 可观测性
-    路由决策日志结构化       :p6a, after p5c, 2d
-    Prometheus / Debug端点   :p6b, after p6a, 3d
-    Dashboard 数据基线       :p6c, after p6b, 2d
+    Dashboard 基线+大屏 (6.5/6.6) :done, p6a, 2026-08-20, 1d
+    响应头/Prometheus (6.1-6.4)  :p6b, after p5c, 3d
 
     section Phase 7 — 性能与生产强化
-    真正 Passthrough 优化    :p7a, after p6c, 2d
-    压测与瓶颈优化           :p7b, after p7a, 3d
-    部署基线性能调优         :p7c, after p7b, 2d
+    压测基线 (7.3)           :done, p7a, 2026-08-20, 1d
+    Passthrough/调优/报告    :p7b, after p6b, 3d
 
     section Phase 8 — 发布与生态接入
-    API与接入文档完善        :p8a, after p7c, 2d
-    CHANGELOG / 发布准备      :p8b, after p8a, 2d
-    npm publish              :p8c, after p8b, 1d
+    CHANGELOG 重写 (8.3 部分) :done, p8a, 2026-09-01, 1d
+    API文档/发布准备/publish  :p8b, after p7b, 3d
 ```
 
 ## 注意事项
@@ -127,16 +129,18 @@ gantt
 
 ## Phase 状态总览
 
-| Phase   | 目标                            |            状态            |   提交    |     测试      |
-| :------ | :------------------------------ | :------------------------: | :-------: | :-----------: |
-| Phase 1 | 基础清理 & 品牌统一             |        ✅ **完成**         | `e2b9adc` |    315/315    |
-| Phase 2 | Claude Code 支持 & 统一代理架构 |        ✅ **完成**         | `1b43dae` |    340/340    |
-| Phase 3 | 架构收口与文档对齐              | 🚧 部分完成（3.4/3.5/3.8） |     —     | 基线：754/754 |
-| Phase 4 | Benchmark 与正确性              |         🚧 进行中          |     —     |    754/754    |
-| Phase 5 | 增强能力接线                    |     🚧 5.6 核心已完成      |     —     | 继承 Phase 4  |
-| Phase 6 | 可观测性                        |     🚧 6.5/6.6 已完成      |     —     | 继承 Phase 5  |
-| Phase 7 | 性能与生产强化                  |       🚧 7.3 已完成        |     —     | 继承 Phase 6  |
-| Phase 8 | 发布与生态接入                  |         🔲 未开始          |     —     | 继承 Phase 7  |
+| Phase   | 目标                            |                         状态                         |   提交    |     测试      |
+| :------ | :------------------------------ | :--------------------------------------------------: | :-------: | :-----------: |
+| Phase 1 | 基础清理 & 品牌统一             |                     ✅ **完成**                      | `e2b9adc` |    315/315    |
+| Phase 2 | Claude Code 支持 & 统一代理架构 |                     ✅ **完成**                      | `1b43dae` |    340/340    |
+| Phase 3 | 架构收口与文档对齐              | 🟢 主体完成（3.3/3.7/3.10 已决；3.6/3.9 余文档收尾） |     —     | 基线：742/742 |
+| Phase 4 | Benchmark 与正确性              |      🚧 4.0–4.3 完成；4.4–4.6 待 D-005 语义定案      |     —     |    742/742    |
+| Phase 5 | 增强能力接线                    | 🚧 5.6 完成；5.2–5.5 重定性为库 API（压缩模块已删）  |     —     | 继承 Phase 4  |
+| Phase 6 | 可观测性                        |    🚧 6.5/6.6 完成；6.1/6.2 部分；6.3/6.4 未开始     |     —     | 继承 Phase 5  |
+| Phase 7 | 性能与生产强化                  |                    🚧 7.3 已完成                     |     —     | 继承 Phase 6  |
+| Phase 8 | 发布与生态接入                  |    🚧 8.3 CHANGELOG 已重写（未提交）；其余未开始     |     —     | 继承 Phase 7  |
+
+> 测试基线说明（2026-09-01）：当前工作区实测 **742/742（36 文件）**。旧文 754/754（D-004 修复后）与 761/761（D-005 第二轮）均已被死代码清理后的测试集取代——删除了 `journal.test.ts`、`compression/` 全部测试与 test/ 目录 ClawRouter 残留，742 是新的唯一有效基线。
 
 ---
 
@@ -265,7 +269,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ## 🚧 Phase 3 — 架构收口与文档对齐
 
-> **预计时长**: ~6 天 | **状态**：3.4 / 3.5 / 3.8 已完成，主链收口（3.1–3.3 / 3.6 / 3.7 / 3.9）未开始
+> **预计时长**: ~6 天 | **状态**：✅ 主体完成（2026-09-01 校准）——3.3 / 3.4 / 3.5 / 3.7 / 3.8 / 3.10 已决，仅剩 3.6（变更记录，部分由 CHANGELOG 承担）与 3.9（文档表述收尾）
 > **关联文档**:
 > `docs/reviews/2026-03-08-project-summary.md`
 > `docs/plans/2026-03-08-architecture-consolidation-plan.md`
@@ -280,27 +284,30 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 关键任务
 
-- [ ] **3.1** 基于审阅报告确认“当前真实主链”与“计划保留主链”
-- [ ] **3.2** 设计统一 `RoutingDecision` 输出结构
-- [ ] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线
+- [x] **3.1** 基于审阅报告确认“当前真实主链”与“计划保留主链” —— ✅ **2026-09-01 校准**：真实主链已实证为 `src/server.ts` → `HybridClassifier`（规则 → 启发式 → 可选 AI → 兜底），`src/router/` 不在链上（README「库 API 说明」与 `src/index.ts` 注释均已显式标注）
+- [ ] **3.2** 设计统一 `RoutingDecision` 输出结构 —— ⚠️ **2026-09-01 重定性**：`RoutingDecision` 已作为库 API 类型从 `src/router/index.js` 导出；服务主链并无消费方。若 5.1 pipeline 真启动则并入其时设计，否则本项可关闭
+- [x] **3.3** 决定 `HybridClassifier` 与 `router/` 的归位关系，消除双主线 —— ✅ **2026-09-01 已决（保留为库 API，未提交）**
   - 前置（D-001 遗留）：~~`config.yaml` 四档模型未注册 `models.ts`~~ ✅ 已解除（2026-08-25 `d63dba5`，默认 tiers 对齐注册表）；剩余决策：`filterByToolCalling`/成本估算接入时模型注册表与 YAML 档位配置的归属（参考 `src/router/config.ts` 硬编码 DEFAULT_ROUTING_CONFIG 的双配置源问题）
   - 决策输入（2026-08-21）：`src/router/` 共 2546 行，live 链路只用到 `tool-intent.ts`，其余（15 维 sigmoid 打分器、成本感知选模器、profile 分档）全是死代码。删除或收编须一并处理下方 3.9 的文档表述
+  - **决策结果（2026-09-01，工作区未提交）**：不删不收编，**保留为显式标注的库 API** —— `route()` 及 15 维评分器继续从 `index.ts` 导出，注释明确「内置服务用 HybridClassifier，不用 route()」；README 新增「库 API 说明」一节；`src/router/llm-classifier.ts`（126 行，无调用方）已删，`src/router/` 现 2393 行。双主线叙事在文档层已消除，代码层维持现状是有意决策而非遗留
 - [x] **3.4** 清理 `README.md`、`docs/architecture.md`、`docs/features.md`、`docs/configuration.md` 中的旧叙事
 - [x] **3.5** 清理 `openclaw.plugin.json`、`openclaw.security.json` 中的旧支付/x402 描述
-- [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录
-- [ ] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径
+- [ ] **3.6** 产出本 Phase 的架构收口说明与变更记录 —— 🟡 **2026-09-01 部分达成**：CHANGELOG「Unreleased — cleanup」段已记录死代码删除与库 API 边界，但未提交；独立的架构收口说明文档未产出
+- [x] **3.7** 默认配置路径改为用户主目录 `~/.nexus-router/config.yaml`（跨平台），首启自动从内嵌模板创建，`--help` 按 OS 提示真实路径 —— ✅ **已完成**（`ensureConfigExists` + `cli.ts:50-51` 按 OS 输出 `~/.nexus-router/config.yaml` / `%USERPROFILE%\.nexus-router\config.yaml`；CHANGELOG v0.12.0–0.12.5 合并条目有载）
 - [x] **3.8 部署基线收口与文档入口统一**
   - 确认 `deploy/new-api/` 为唯一官方验证的远程部署形态（nginx + NexusRouter + new-api passthrough）
   - 在 `README.md` 与 `docs/usage-manual.md` 中增加部署入口与快速链接
   - 归档 `docs/plans/2026-02-13-e2e-docker-deployment.md` 等旧部署文档
-- [ ] **3.9 「15 维」表述与实现对齐**（2026-08-21 新增，依赖 3.3 的归位决策）
-  - `README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
-  - `src/adapter/profile.ts:8`、`src/adapter/types.ts:70` 的注释同样过时
-- [ ] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）
+- [ ] **3.9 「15 维」表述与实现对齐**（2026-08-21 新增，依赖 3.3 的归位决策）—— 🟡 **2026-09-01 过半完成**
+  - ✅ 已修（工作区）：`README.md`（15 维改述为库 API，正文改为 HybridClassifier 三层说明）、`package.json` description、`src/index.ts` 导出注释（新增「库 API 说明」与逐条 library-only 标注）、`ROADMAP.md`（本轮校准）
+  - 🔲 剩余：`CLAUDE.md`（仍写「14 维」）、`docs/architecture.md`（:91/:118）、`docs/features.md`（:15/:17；:67 已正确标注未接线）、`docs/routing-profiles.md`（:43）、`src/adapter/profile.ts:8` 与 `src/adapter/types.ts:70` 注释仍写 15-dim
+  - 原始记录：`README.md`（3 处）、`ROADMAP.md`、`CLAUDE.md`（写「14 维」）、`docs/architecture.md`、`docs/features.md`、`docs/routing-profiles.md` 均以「15 维」描述 live 行为，实际生效的是 `HybridClassifier` 的三层级联 —— 文档指向死代码
+- [x] **3.10 仓库整洁**（2026-08-27 由临时想法拆分，零功能影响）—— ✅ **2026-09-01 完成（工作区未提交）**
   - ~~移除 git 跟踪的构建产物~~ ✅ **无需处理**：`nexusrouter-*.tgz` / `-offline.tar.gz` 已被 `.gitignore` 忽略且从未进入版本库（2026-08-27 核实）。仅需注意本地会残留旧版本号的包文件，部署前核对 sha256 而非只看文件名
-  - 处置未跟踪的 `docs/ppt/`（结项评审 PPT：提交入库、移入 `_archive/` 或 gitignore，三选一）
-  - `CHANGELOG.md` 已严重脱节（最新条目 v0.11.11 / Mar 2，缺失整条 0.12.x 线，且开头仍写旧品牌「ClawRouter」）—— 归 Phase 8.3，不在本项范围内补写单条以免造出「0.11.11 直接跳到 0.12.6」的误导性历史
-  - 全量回归确认无功能影响
+  - ✅ `docs/ppt/` 已提交入库（`228a4c3`，结项评审 PPT + handoff）
+  - ✅ `CHANGELOG.md` 已重写（工作区）：品牌改为 NexusRouter、补齐 0.12.x 全线（v0.12.7 / v0.12.6 / v0.12.0–0.12.5 合并条目 + Unreleased cleanup 段）—— 原「归 Phase 8.3」的顾虑以此方式落地
+  - ✅ 全量回归确认无功能影响：`npm test` 742/742、`typecheck` / `lint` 全绿（2026-09-01 实测）
+  - 🔲 剩余一步：本工作区 118 个文件的清理改动**尚未提交**，需一次 cleanup 提交收口
 - [ ] 全量回归 + 代码评审 + 提交
 
 ### 验收标准
@@ -326,7 +333,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 目标
 
-> 2026-08-21 修订：评测对象是 live 链路的 `HybridClassifier`，**不是** `src/router/` 的 15 维打分器（2546 行，仅 `tool-intent.ts` 接线，归属待 3.3 决定）。顺序也已调整：先定档位语义与回归集，再攒标注 —— taxonomy 未定则标注无从谈起，且现有 165 条日志全部产生于 8/20 修复之前，不可用。
+> 2026-08-21 修订：评测对象是 live 链路的 `HybridClassifier`，**不是** `src/router/` 的 15 维打分器（2546 行，仅 `tool-intent.ts` 接线，归属待 3.3 决定 —— 2026-09-01 已决：保留为库 API，现 2393 行）。顺序也已调整：先定档位语义与回归集，再攒标注 —— taxonomy 未定则标注无从谈起，且现有 165 条日志全部产生于 8/20 修复之前，不可用。
 
 1. **档位语义定义**：四档 vs 三档、difficulty 轴与 thinking 轴是否拆开 —— 标注与 benchmark 的前置条件
 2. **回归集**：手写中英文用例覆盖四档 + 已知陷阱，纳入 `npm test` 门禁
@@ -415,7 +422,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ## 🚧 Phase 5 — 增强能力接线
 
-> **预计时长**: ~9 天 | **状态**：5.6 省钱记账体系核心已全部完成（5.6.1–5.6.7），5.1–5.5 / 5.7 未开始
+> **预计时长**: ~9 天 | **状态**：5.6 省钱记账体系核心已全部完成（5.6.1–5.6.7）；5.2–5.5 于 2026-09-01 重定性（见下）；5.1 / 5.7 未开始
 > **关联文档**:
 > `docs/reviews/2026-03-08-project-summary.md`
 > `docs/plans/2026-03-08-architecture-consolidation-plan.md`
@@ -429,11 +436,11 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 关键任务
 
-- [ ] **5.1** 设计 request/response middleware 或 pipeline 结构
-- [ ] **5.2** 接入 `RequestDeduplicator`
-- [ ] **5.3** 接入 `ResponseCache`
-- [ ] **5.4** 接入 `SessionStore` / `SessionJournal`
-- [ ] **5.5** 接入 `Compression`
+- [ ] **5.1** 设计 request/response middleware 或 pipeline 结构 —— ⚠️ **2026-09-01 重定性**：原定承载 5.2–5.5 的接线，但这些模块已决策不接线（见下），pipeline 失去承载对象。若未来确需接线（如缓存），再启动本项；否则可随 Phase 5 关闭
+- [x] **5.2** 接入 `RequestDeduplicator` —— ✅ **已决策：不接线**（2026-09-01）。`src/dedup.ts` 保留为库 API，`index.ts` 导出注释与 README「库 API 说明」均显式标注未接入服务管线
+- [x] **5.3** 接入 `ResponseCache` —— ✅ **已决策：不接线**（2026-09-01），同上（`src/response-cache.ts` 保留为库 API）
+- [x] **5.4** 接入 `SessionStore` / `SessionJournal` —— ✅ **已决策：不接线**（2026-09-01）。`SessionStore` 保留为库 API；`src/journal.ts`（227 行，无调用方）已删除
+- [x] **5.5** 接入 `Compression` —— ✅ **已决策：模块删除**（2026-09-01）。`src/compression/` 整体约 1170 行从未接线，已整目录删除；如需压缩能力将来重写，不做保留
 - [ ] **5.6** 接入 `Logger` / `Stats` / `Report` —— **Savings Ledger 省钱记账体系**（方案：[`docs/plans/2026-08-19-savings-ledger-design.md`](docs/plans/2026-08-19-savings-ledger-design.md)）
   - 🔴 **硬前置**：~~Phase 3.3 未完成前不可施工。四档模型（`claude-opus-*`）未注册进 `models.ts`，成本计算 100% 依赖该价格表，此时接线记出来的账全是 `0` / `null`~~ —— ✅ **已双重解除**：① 2026-08-20 窄口径解除（「产品默认价 + 部署级 `PriceOverrides`，未知恒为 `null`」）；② 2026-08-25 `d63dba5` 默认 tiers 对齐价格注册表，四档均为已注册模型，无 override 也能出数
     - 📌 **2026-08-20 窄口径解除**（Step 1/2/3 已落地）：改用「产品默认价 + 部署级 `PriceOverrides`，未知恒为 `null`」后，纯函数层与接线层不再依赖 3.3；但**没人填 override 时账面会是一片 `null`**（这是诚实的「未测」，不是 `0`），可运行但无可读省钱数字
@@ -490,17 +497,17 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 验收标准
 
-| 指标       | 目标                                           |
-| :--------- | :--------------------------------------------- |
-| 接线范围   | 至少完成缓存/去重/会话/日志四类核心能力接入    |
-| 主链一致性 | 所有增强能力通过统一 pipeline 接入             |
-| 文档状态   | 各能力标注为 enabled / optional / experimental |
+| 指标       | 目标                                                                                                                             | 状态                                                                          |
+| :--------- | :------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| 接线范围   | ~~至少完成缓存/去重/会话/日志四类核心能力接入~~（2026-09-01 修订：日志/记账已接线 ✅；缓存/去重/会话经决策不接线，压缩模块已删） | 🟡 记账体系 ✅，其余已决策不接线                                              |
+| 主链一致性 | 所有增强能力通过统一 pipeline 接入                                                                                               | 🟡 记账经 `AccountingSwitch` 接入；统一 pipeline（5.1）随接线决策失去承载对象 |
+| 文档状态   | 各能力标注为 enabled / optional / experimental                                                                                   | ✅ README「库 API 说明」已显式标注未接线组件（2026-09-01，未提交）            |
 
 ---
 
 ## 🚧 Phase 6 — 可观测性
 
-> **预计时长**: ~7 天 | **状态**：6.5 / 6.6 已完成，6.1–6.4 未开始
+> **预计时长**: ~7 天 | **状态**：6.5 / 6.6 已完成；6.1 主体完成、6.2 部分完成（2026-09-01 校准）；6.3 / 6.4（Prometheus / debug 端点）未开始
 > **关联文档**：`docs/plans/2026-08-20-live-dashboard-design.md`（6.5/6.6 Web 实时大屏设计）
 
 ### 目标
@@ -512,8 +519,8 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ### 关键任务
 
-- [ ] **6.1** 路由决策日志结构化（每次请求记录完整上下文）
-- [ ] **6.2** `x-nexusrouter-*` 响应头完善（成本估算、provider 信息）
+- [x] **6.1** 路由决策日志结构化（每次请求记录完整上下文）—— 🟢 **主体已完成**：`routing-*.jsonl` 记录 tier / layer / confidence / agent / costUsd / baselineCostUsd / usageSource / classificationPreview / matched / heuristicScore / estimatedTokens / classificationStale 等字段（schema v2 + 2026-08-27 调优材料四字段）。缺口：无结构化查询接口，只能 `eval` / 肉眼读 jsonl
+- [ ] **6.2** `x-nexusrouter-*` 响应头完善（成本估算、provider 信息）—— 🟡 **部分完成**：现有 `x-nexusrouter-tier` / `-layer` / `-confidence` / `-agent` 四个头（`src/server.ts:429-432`）；成本估算与 provider 信息头未加
 - [ ] **6.3** Prometheus metrics exporter（请求计数/延迟/tier 分布）
 - [ ] **6.4** 补齐 `/metrics` / debug 端点
   - 可选 `GET /internal/stats`（供 `persist: false` 下的实时数值）：**只读 + 回环 only + 显式 opt-in + 默认关闭**，三条缺一不可
@@ -531,7 +538,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 ## 🚧 Phase 7 — 性能与生产强化
 
-> **预计时长**: ~7 天 | **状态**：7.3 压测基线已完成，7.1 / 7.2 / 7.4 / 7.5 未开始
+> **预计时长**: ~7 天 | **状态**：7.3 压测基线已完成；7.4 已重定性（随 3.8 部署基线收口，不再单独立项）；7.1 / 7.2 / 7.5 未开始
 
 ### 目标
 
@@ -549,15 +556,15 @@ claude   # 15维分类器自动路由，无需其他配置
     - accounting OFF：**~582 req/s**，p50 76 ms，p95 157 ms，p99 228 ms
     - accounting ON：**~592 req/s**，p50 146 ms，p95 282 ms，p99 610 ms
   - 观察：端到端天花板受 mock 上游 + fetch 连接开销限制， accounting 批量写路径本身不再是瓶颈（与 5.6.6 的 139,537 req/s 纯写路径声明一致）。
-- [ ] **7.4** `Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）
+- [x] **7.4** ~~`Dockerfile` + `docker-compose.yml`（含 Ollama sidecar 配置）~~ —— ✅ **已重定性**（2026-09-01）：与 Phase 3 验收标准「Phase 7 不再包含 Docker/Compose 任务」矛盾，以验收标准为准。部署形态已由 `deploy/new-api/`（含 Dockerfile + compose，2026-09-01 工作区修复 `router.hosts: ["0.0.0.0"]` 解决 nginx 502）承载；Ollama sidecar 无实际需求，不立项
 - [ ] **7.5** 输出性能测试报告
 - [ ] 全量回归 + 代码评审 + 提交
 
 ---
 
-## 🔲 Phase 8 — 发布与生态接入
+## 🚧 Phase 8 — 发布与生态接入
 
-> **预计时长**: ~5 天
+> **预计时长**: ~5 天 | **状态**：8.3 的 CHANGELOG 部分已在工作区完成（未提交）；8.1 / 8.2 / 8.4 / publish 未开始
 
 ### 目标
 
@@ -568,7 +575,7 @@ claude   # 15维分类器自动路由，无需其他配置
 
 - [ ] **8.1** 完整 API 文档（端点参考、Agent 配置示例、Provider 配置）
 - [ ] **8.2** README 与安装文档最终收尾
-- [ ] **8.3** CHANGELOG.md + npm publish 准备（semver、tag）
+- [ ] **8.3** CHANGELOG.md + npm publish 准备（semver、tag）—— 🟡 **CHANGELOG 已重写**（2026-09-01 工作区，含 0.12.x 全线 + Unreleased cleanup 段）；publish 准备未开始。当前版本 0.12.7
 - [ ] **8.4** release checklist 与发布说明
   - 🔴 **必须包含装包冒烟**（2026-08-27 D-007 教训）：`npm test` 只跑源码、从不碰打包产物，D-007（npm 安装后 CLI 静默退出）在三道门禁 100% 绿的情况下依然存在。发布前须做：真实 tgz 装进干净 `node_modules` → 经 `.bin` 调用 `--version` → 起服务 → 打一条请求 → 确认日志落盘。缺这一步，版本号绿灯不代表包能跑
 - [ ] 全量回归 + 代码评审 + 提交
@@ -599,12 +606,12 @@ git commit -m "docs: 更新 ROADMAP.md Phase N 完成状态"
 
 ## 差异化定位
 
-| 特性              |  NexusRouter  | claude-code-router | 普通代理 |
-| :---------------- | :-----------: | :----------------: | :------: |
-| 多协议 Agent 支持 |  ✅ 统一端点  |   Anthropic Only   |  单协议  |
-| 智能分类路由      | ✅ 15维/三层  |      手动配置      |    无    |
-| 分类延迟          |    ✅ <1ms    |        N/A         |   N/A    |
-| AgentProfile 插件 |   ✅ 可扩展   |         无         |    无    |
-| 动态加权融合      | ✅ 按信号强度 |         无         |    无    |
-| 向后兼容          |   ✅ 零改动   |       需配置       |  需配置  |
-| 代码评审体系      |  ✅ 每 Phase  |         无         |    无    |
+| 特性              |            NexusRouter            | claude-code-router | 普通代理 |
+| :---------------- | :-------------------------------: | :----------------: | :------: |
+| 多协议 Agent 支持 |            ✅ 统一端点            |   Anthropic Only   |  单协议  |
+| 智能分类路由      | ✅ 三层混合（规则+启发式+可选AI） |      手动配置      |    无    |
+| 分类延迟          |              ✅ <1ms              |        N/A         |   N/A    |
+| AgentProfile 插件 |             ✅ 可扩展             |         无         |    无    |
+| 动态加权融合      |           ✅ 按信号强度           |         无         |    无    |
+| 向后兼容          |             ✅ 零改动             |       需配置       |  需配置  |
+| 代码评审体系      |            ✅ 每 Phase            |         无         |    无    |

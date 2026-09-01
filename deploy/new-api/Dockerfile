@@ -2,7 +2,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-RUN corepack enable
+# 与 package.json packageManager 字段保持同版本；不用 corepack，
+# 避免旧版 corepack 的签名 keyid 问题导致构建失败
+RUN npm install -g pnpm@11.22.0
 
 COPY package.json pnpm-lock.yaml tsconfig.json tsup.config.ts ./
 RUN pnpm install --frozen-lockfile
@@ -16,7 +18,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN corepack enable
+RUN npm install -g pnpm@11.22.0
 
 # 只装生产依赖（fastify/yaml/zod），不带 devDependencies
 COPY package.json pnpm-lock.yaml ./
