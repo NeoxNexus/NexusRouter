@@ -38,6 +38,16 @@ export interface AgentProfile {
    * keeps the original text. If not provided, text passes through unchanged.
    */
   sanitizeForClassification?(text: string): string;
+  /**
+   * Recognize a host-injected skill document (an invoked skill's SKILL.md
+   * delivered as a plain user message) and return the skill's name, or null
+   * when the text is not a skill injection. The classifier must never score
+   * the skill body itself (D-009): the body is a static procedure document
+   * whose keywords ("proves", "trade-offs") say nothing about the task at
+   * hand. The caller skips the message and keeps the name as a structured
+   * observability signal.
+   */
+  matchSkillInjection?(text: string): string | null;
 }
 
 // ─── Default Weights ───
@@ -108,6 +118,19 @@ export const claudeCodeProfile: AgentProfile = {
     // only fully-closed blocks; an unterminated tag is left untouched
     // rather than risking eating the user's own text.
     return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "").trim();
+  },
+
+  matchSkillInjection(text: string): string | null {
+    // Invoking a skill delivers its SKILL.md as a plain user message with
+    // no <system-reminder> wrapper: a "Base directory for this skill: <path>"
+    // header followed by the document body (D-009: 67/1114 logged requests
+    // scored this body, e.g. "proves" → REASONING ×33). Exact-case match —
+    // the header string is emitted verbatim by the host. The skill name is
+    // the last path segment; both / and \ separators occur in real traffic.
+    const match = /^Base directory for this skill:\s*(\S+)/.exec(text);
+    if (!match) return null;
+    const segments = match[1].split(/[/\\]/).filter(Boolean);
+    return segments.length > 0 ? segments[segments.length - 1] : null;
   },
 };
 

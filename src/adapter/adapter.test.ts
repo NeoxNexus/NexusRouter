@@ -312,3 +312,32 @@ describe("sanitizeForClassification", () => {
     expect(sanitizeForClassification(openClawProfile, text)).toBe(text);
   });
 });
+
+// ─── Skill Injection Recognition (D-009) ───
+
+describe("matchSkillInjection", () => {
+  const body = "# Systematic Debugging\n\nRandom fixes prove nothing.";
+
+  test("claude-code recognizes a skill document and extracts the name from a windows path", () => {
+    const text = `Base directory for this skill: C:\\Users\\Administrator\\.claude\\skills\\superpowers-5.0.7\\skills\\systematic-debugging\n\n${body}`;
+    expect(claudeCodeProfile.matchSkillInjection?.(text)).toBe("systematic-debugging");
+  });
+
+  test("claude-code extracts the name from a posix path", () => {
+    const text = `Base directory for this skill: /home/neo/.claude/skills/brainstorming\n\n${body}`;
+    expect(claudeCodeProfile.matchSkillInjection?.(text)).toBe("brainstorming");
+  });
+
+  test("claude-code returns null for ordinary user text", () => {
+    expect(claudeCodeProfile.matchSkillInjection?.("prove this theorem by induction")).toBeNull();
+  });
+
+  test("claude-code returns null when the header appears mid-text, not at the start", () => {
+    const text = `look at this:\nBase directory for this skill: /skills/foo`;
+    expect(claudeCodeProfile.matchSkillInjection?.(text)).toBeNull();
+  });
+
+  test("profiles without the hook are simply not consulted", () => {
+    expect(openClawProfile.matchSkillInjection).toBeUndefined();
+  });
+});

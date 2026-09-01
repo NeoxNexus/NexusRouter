@@ -4,9 +4,11 @@ All notable changes to NexusRouter (formerly ClawRouter).
 
 ---
 
-## Unreleased — cleanup
+## v0.12.8 — Sep 2026
 
-- **CI fixed** — the lifecycle/security-scanner integration tests referenced modules that never existed in this repo (`src/proxy.js`, `src/auth.js`) and failed on every run; they are removed and CI now runs the full unit suite (742 tests) on every push
+- **fix(classifier)** — skill documents injected by Claude Code (`Base directory for this skill: …` + SKILL.md body) were scored as user intent, pinning debugging sessions to REASONING via words like "proves" (67/1114 logged requests, D-009); the classification-text extractor now skips skill injections and falls back to the original instruction
+- **feat(logging)** — routing log records `activeSkill` when a skill injection was skipped (observability only, no routing weight yet)
+- **CI fixed** — the lifecycle/security-scanner integration tests referenced modules that never existed in this repo (`src/proxy.js`, `src/auth.js`) and failed on every run; they are removed and CI now runs the full unit suite on every push
 - **Legacy ClawRouter/BlockRun test files deleted** — `test/` contained solana/wallet/x402 leftovers that were never runnable; `test/integration/`, `test/docker/`, `skills/clawrouter/`, the ClawRouter-era `scripts/{install,uninstall,update,reinstall}` helpers and ~10 dead npm scripts removed
 - **Dead code deleted** — `src/compression/` (~1,170 lines, never wired), `src/journal.ts`, `src/report.ts`, `src/updater.ts` (placeholder URL), `src/router/llm-classifier.ts`
 - **Docs aligned with reality** — README/package.json no longer advertise "15-dimension scoring" as the built-in classifier (it is a library API; the server uses HybridClassifier); library-only exports (SessionStore, RequestDeduplicator, ResponseCache, fetchWithRetry, typed errors) are now explicitly documented as not wired into the server pipeline

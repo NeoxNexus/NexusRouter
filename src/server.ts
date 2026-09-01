@@ -194,18 +194,30 @@ function trackRetryOutcome(input: {
  * <system-reminder> blocks) and tool_result-only continuations carry no
  * text at all — the walk below skips both and lands on the task's original
  * instruction.
+ *
+ * Skill invocations (D-009) are skipped the same way: the SKILL.md body is
+ * a static procedure document, not the current instruction. The most recent
+ * skill met during the walk is remembered as `activeSkill` — observability
+ * only, no routing weight yet (see classifier-improvements.md 2026-09-01).
  */
 function extractClassificationText(
   profile: AgentProfile,
   messages: UnifiedRequest["messages"],
-): { text: string; ageTurns: number } {
+): { text: string; ageTurns: number; activeSkill?: string } {
+  let activeSkill: string | undefined;
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user") continue;
     const text = sanitizeForClassification(profile, message.content);
-    if (text) return { text, ageTurns: messages.length - 1 - i };
+    if (!text) continue;
+    const skill = profile.matchSkillInjection?.(text);
+    if (skill) {
+      activeSkill ??= skill;
+      continue;
+    }
+    return { text, ageTurns: messages.length - 1 - i, ...(activeSkill ? { activeSkill } : {}) };
   }
-  return { text: "", ageTurns: 0 };
+  return { text: "", ageTurns: 0, ...(activeSkill ? { activeSkill } : {}) };
 }
 
 type RecordUsageInput = {
@@ -327,10 +339,8 @@ async function handleUnified(
 
   // Latest real user text — shared by the classifier and the retry detector,
   // so it is computed even when this request is not auto-routed.
-  const { text: classificationText, ageTurns: classificationAgeTurns } = extractClassificationText(
-    profile,
-    unified.messages,
-  );
+  const { text: classificationText, ageTurns: classificationAgeTurns, activeSkill } =
+    extractClassificationText(profile, unified.messages);
 
   // Outcome signal: if this request looks like a retry of one logged in the
   // last 60s, append a companion row for the earlier entry (see the retry
@@ -461,6 +471,7 @@ async function handleUnified(
         ...(classificationAgeTurns > 0
           ? { classificationStale: true, classificationAgeTurns }
           : {}),
+        ...(activeSkill ? { activeSkill } : {}),
         promptPreview: userText,
         classificationPreview: classificationText,
         estimatedTokens: Math.round(estimatedTokens),

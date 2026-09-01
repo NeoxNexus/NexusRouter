@@ -1,6 +1,6 @@
 {
   "name": "nexusrouter",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "description": "Smart LLM router — local hybrid classifier (rules + heuristics + optional AI) routes each request to the right model tier. 41+ models priced, zero-cost routing in <1ms.",
   "type": "module",
   "main": "dist/index.js",

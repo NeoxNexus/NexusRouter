@@ -865,6 +865,88 @@ ollama:
     }
   });
 
+  // D-009: an invoked skill lands as a plain user message ("Base directory
+  // for this skill: …" + SKILL.md body). Scoring that body pinned debugging
+  // sessions to REASONING via the word "proves" (33 rows in the 8/28-9/1
+  // capture). The walk must skip the skill document, classify the original
+  // instruction it serves, and record the skill name for observability.
+  it("skips an injected skill document and classifies the original instruction", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      const instruction = { role: "user", content: "把这个文件的函数改个名" };
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            instruction,
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "t1", name: "Skill", input: { skill: "systematic-debugging" } },
+              ],
+            },
+            {
+              role: "user",
+              content:
+                "Base directory for this skill: C:\\Users\\Administrator\\.claude\\skills\\superpowers-5.0.7\\skills\\systematic-debugging\n\n# Systematic Debugging\n\nRandom fixes prove nothing; every hypothesis proves or disproves itself.",
+            },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "t1", content: "export function foo()" }],
+            },
+          ],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.activeSkill).toBe("systematic-debugging");
+      expect(entry.classificationPreview).toBe("把这个文件的函数改个名");
+      // Before the fix this row read the skill body: "proves" → REASONING.
+      expect(entry.classifierTier).toBe("MEDIUM");
+      expect(entry.reason).not.toBe("reasoning-keyword");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("falls back to the empty-text entry but still logs the skill when nothing else remains", async () => {
+    mockUpstream();
+    const config = await loadConfig(logConfigPath);
+    const server = await createServer(logConfigPath, config);
+    try {
+      await server.inject({
+        method: "POST",
+        url: "/anthropic/v1/messages",
+        headers: { "x-api-key": "sk-user" },
+        payload: {
+          model: "auto",
+          max_tokens: 100,
+          messages: [
+            {
+              role: "user",
+              content:
+                "Base directory for this skill: /home/neo/.claude/skills/brainstorming\n\n# Brainstorming\n\nWeigh the trade-offs.",
+            },
+          ],
+        },
+      });
+
+      const [entry] = await readLogEntries(1);
+      expect(entry.activeSkill).toBe("brainstorming");
+      expect(entry.classificationPreview).toBe("");
+      expect(entry.classifierTier).toBe("SIMPLE");
+      expect(entry.reason).toBe("low-confidence-fallback");
+    } finally {
+      await server.close();
+    }
+  });
+
   // D-005 calibration: 43 of 55 rule hits in the 8/25-8/27 capture fired on
   // conversations deeper than 10 turns and still reported confidence 1.0 —
   // one at messageCount 99. A keyword match against text from 98 turns ago

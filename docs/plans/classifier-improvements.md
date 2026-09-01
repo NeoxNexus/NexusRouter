@@ -102,3 +102,41 @@
 - 分类串行在转发之前，延迟 1:1 加到 TTFT。A3B 级 MoE 常驻部署单次约 100~~300ms（几百 token prefill + 约束输出），占上游 TTFT（0.5~~3s）的 10~30%。
 - 级联把开销压到近零：高精度规则短路（~~0ms，吃 30-50%）→ embedding 分类（毫秒级）→ 仅 5~~10% 边界流量走 35B 分类。
 - 工程必选：输出约束（十几 token）、模型常驻（keep_alive，35B 冷启动分钟级）、超时兜底（500ms~1s 回落启发式，即现有 Layer 3 设计）、确认并发排队行为（CC 主会话+后台任务突发）。
+
+---
+
+## 2026-09-01：新日志分析（1114 条）与「skill 是否参与难度判断」讨论
+
+### 一、新日志分析结论（8/28~9/1，routing 1114 条 / outcome 48 条 / usage 1114 条）
+
+新字段（`classificationPreview` / `heuristicScore` / `classificationStale` / `classificationAgeTurns`）全部落地，4.4 标注的硬前置达成。
+
+- 🔴 **新缺陷（D-009，D-001 同构）：skill 正文污染分类输入。** 67 条（6%）把 host 注入的 SKILL.md 正文当用户意图分类：`proves` → REASONING ×33（`systematic-debugging` 正文）、`trade-offs` → COMPLEX ×34（`brainstorming` 正文）。根因：`sanitizeForClassification` 只剥 `<system-reminder>` 包裹块，而 skill 注入是无包裹的普通 user 消息（`Base directory for this skill:` 开头）。更恶劣的是二次效应：skill 注入成为「最近一条含文本的 user 消息」后，该任务后续每一轮 tool_result 回调都回溯到它，同一文本被重复定档最多 34 次、`ageTurns` 最高 136 —— 一次 skill 调用污染整个任务剩余轮次。
+- **Layer 1 死代码第二次实证**：`layer: "heuristic"` 0/1114，`heuristicScore` 上限 0.90 < 阈值 0.92，86% 流量走兜底。且即使下调阈值也只改标签不改档位 → 结论不是调参，是**删掉置信度门、承认两层架构**（随 4.6 与基线同批落地，避免提前动结构影响口径）。
+- **D-005 量化坐实**：81.5%（908/1114）请求分类的是陈旧文本，`ageTurns ≥ 10` 有 404 条；236 个唯一输入对应 1114 次分类，**78.8% 是重复计算** → 任务级 tier 记忆从「待议」升级为「该做」，它是 Layer 2 可用的前提。
+- **护栏退化**：`contextForcedComplex` 命中 32.7%（364 条；原判 MEDIUM 315 / **SIMPLE 49**）。`estimatedTokens` 中位数 82.6k，CC 长会话常态下护栏从「兜底」退化为「常开升档」，恒真信号不含分类信息（同 D-001 的 `hasTools`）。方向：从「升档」改为「按窗口元数据过滤候选模型」——大上下文的平凡查询需要的是大窗口便宜模型，不是更强的模型；49 条 SIMPLE→COMPLEX 两级跳档样本进 4.4 专门审。
+- **成本数字无实测证据**：账面节省 $10.73（11.7%），但 `usageSource: estimated` 占 1081/1114，真实上游 usage 仅 5 条；COMPLEX/REASONING 档 saved=$0（映射模型与 baseline 同价）。4.5 出报告时估算与实测必须分开统计。
+- 健康项：重试 4.3%（46 same-text / 2 model-switch），D-006 修复后形态正常；`classifyLatencyMs` 中位 0ms、最大 4ms。
+
+### 二、「skill 是否参与难度判断」讨论结论（重要资产）
+
+问题：skill 正文在 Layer 0 是纯噪声（可剥离），但 skill 本身是提示词、能影响任务难度（「读单一文档的 skill」vs「汇总项目信息写对接文档的 skill」），如何正确利用？
+
+达成一致的判断：
+
+1. **skill 是「程序」，不是「文本」。** 请求实际工作量 = 任务（用户指令）× 上下文（项目状态）× 程序（执行步骤）。skill 注入的是第三部分。一旦 skill 被加载，后续实际执行的工作主要由 skill 的程序决定，用户指令退化为程序的参数 —— 活跃 skill 对难度的预测力可能高于用户指令本身。
+2. **但 skill 同时是难度压缩器。** 它把「怎么做」外包给提示词：同一个任务，有 skill 时模型按食谱执行（规划负担消失），无 skill 时模型要自己规划。skill 抬高**工作范围（scope）** 的同时降低**所需能力（capability）**，净效应取决于 scope 维度 → 不能笼统「有 skill 就升档」。
+3. **Layer 0 必须剥离正文，高层也不该读原文。** skill 的难度信息编码在程序语义里（几步、是否跨文件、有无判断分支），关键词层读不懂；而 skill 内容恒定（一个用户几十份、每份不变），请求时让 LLM 反复读同一份文档是对延迟与 token 的浪费 —— 与 D-005「确定性重复计算应被记住」同理。
+4. **正确利用形态 = 静态预计算 + 结构化特征 + 下限规则：**
+   - 离线/首次遇见时为每个 skill 生成 profile（`scope`: single-artifact / multi-file / project-wide；`tierFloor`；`summary`），按路径 + 内容 hash 缓存，用户可手改；
+   - 请求时只提取 skill **名字**作为结构化信号，不读正文；
+   - 组合规则：**floor 不升档**（由具体信号驱动，符合 D-002 规矩）；**封顶 COMPLEX、永不指向 REASONING**（skill 是程序，程序不产生推导链 —— taxonomy 规则 4）；与用户指令分类结果**取 max，不叠加**；
+   - Layer 2 启用时喂 skill 名 + profile summary，不喂原文。
+5. **边界（保留意见）**：skill 身份是衍生信号（加载哪个 skill 是 host 模型的预读），不能当独立证据加权过重；占比决定投入，先观测后建设。
+
+落地顺序（跟踪项）：
+
+- [x] ① 剥离 skill 正文 + 提取 skill 名（修 D-009）→ 本次提交
+- [x] ② 路由日志记 `activeSkill`（观测，量化 skill 流量真实占比 —— 现有日志只能确认下限 6%，中途加载不可见）→ 本次提交
+- [ ] ③ 4.4 标注时 skill 相关任务单独分层，验证 skill scope 与人工判定的相关性
+- [ ] ④ 相关性成立再上 profile 表 + floor 规则（若常驻 skill 仅两三个，手写几行 JSON 即可，自动生成机制不必做）

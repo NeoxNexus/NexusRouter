@@ -179,6 +179,13 @@ export type RoutingLogEntry = {
   classificationStale?: boolean;
   /** How many turns back the classified text came from. Absent when fresh. */
   classificationAgeTurns?: number;
+  /**
+   * Name of the skill whose injection was skipped while locating the
+   * classification text (D-009). Observability only — it carries no routing
+   * weight yet; whether skill identity earns a tier floor is decided by the
+   * labeled-eval correlation check (classifier-improvements.md 2026-09-01).
+   */
+  activeSkill?: string;
   promptPreview: string;
   /**
    * The classifier's own input, truncated. `promptPreview` is every user
