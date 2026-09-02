@@ -71,14 +71,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.0.2",
+    "eslint": "^10.9.1",
     "openclaw": "latest",
-    "prettier": "3.8.1",
+    "prettier": "3.9.6",
     "tsup": "^8.0.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.7.0",
-    "typescript-eslint": "^8.54.0",
-    "vitest": "^4.0.18"
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20"
